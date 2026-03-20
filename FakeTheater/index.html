@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>電影購票系統</title>
+    <meta name="description" content="FakeTheater 電影購票系統 - 輕鬆訂購您喜愛的電影票">
+    <link href="css/bootstrap.min.css" rel="stylesheet">
+    <link href="css/custom.css" rel="stylesheet">
+</head>
+
+<body>
+
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="index.html"> FakeTheater</a>
+            <button class="navbar-toggler collapsed" type="button" data-bs-toggle="collapse"
+                data-bs-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false"
+                aria-label="Toggle navigation">
+                <span class="line"></span>
+                <span class="line"></span>
+                <span class="line"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarSupportedContent">
+                <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+                    <li class="nav-item d-lg-none">
+                        <a class="nav-link" href="showtime.html">場次查詢</a>
+                    </li>
+                    <li class="nav-item d-lg-none">
+                        <a class="nav-link" href="schedule.html">電影時刻表</a>
+                    </li>
+                    <li class="nav-item d-lg-none">
+                        <a class="nav-link" href="booking.html">線上訂票</a>
+                    </li>
+                    <hr class="d-lg-none text-white-50">
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="nav-register-btn">註冊</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="nav-login-btn">登入</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Left Sidebar -->
+            <nav id="sidebar" class="col-md-3 col-lg-2 d-md-block bg-dark sidebar collapse">
+                <div class="position-sticky pt-3">
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="sidebarstyle nav-link border-bottom text-white my-2  
+                            d-flex justify-content-center align-items-center rounded-top fs-5"
+                                href="showtime.html">場次查詢</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="sidebarstyle nav-link border-bottom text-white my-2 
+                            d-flex justify-content-center align-items-center rounded-top fs-5"
+                                href="schedule.html">電影時刻表</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="sidebarstyle nav-link border-bottom text-white my-2 
+                            d-flex justify-content-center align-items-center rounded-top fs-5"
+                                href="booking.html">線上訂票</a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+
+
+            <!-- Main Content Area -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+                <div
+                    class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2">首頁</h1>
+                </div>
+
+                <!-- Carousel -->
+                <div id="movieCarousel" class="carousel slide hero-carousel mb-5" data-bs-ride="carousel">
+                    <div class="carousel-indicators" id="carousel-indicators">
+                        <!-- 動態生成 -->
+                    </div>
+                    <div class="carousel-inner" id="carousel-inner">
+                        <!-- 動態生成 -->
+                    </div>
+                    <button class="carousel-control-prev" type="button" data-bs-target="#movieCarousel"
+                        data-bs-slide="prev">
+                        <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+                        <span class="visually-hidden">Previous</span>
+                    </button>
+                    <button class="carousel-control-next" type="button" data-bs-target="#movieCarousel"
+                        data-bs-slide="next">
+                        <span class="carousel-control-next-icon" aria-hidden="true"></span>
+                        <span class="visually-hidden">Next</span>
+                    </button>
+                </div>
+
+                <!-- Category Tabs -->
+                <ul class="nav nav-pills category-tabs" id="categoryTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="all-tab" data-bs-toggle="pill" data-category="all"
+                            type="button" role="tab">全部電影</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="nowshowing-tab" data-bs-toggle="pill" data-category="NowShowing"
+                            type="button" role="tab">🔥 現正熱映</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="toppick-tab" data-bs-toggle="pill" data-category="TopPick"
+                            type="button" role="tab">⭐ 強檔推薦</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="comingsoon-tab" data-bs-toggle="pill" data-category="ComingSoon"
+                            type="button" role="tab">📢 即將上映</button>
+                    </li>
+                </ul>
+
+                <!-- Movie List -->
+                <div class="category-section">
+                    <h2 class="section-title mt-4" id="section-title">電影列表</h2>
+                    <div class="row" id="movie-list">
+                        <!-- 動態生成電影卡片 -->
+                        <div class="col-md-4 col-lg-3 container-fluid">
+                            <div class="loading-skeleton loading-card mb-4"></div>
+                        </div>
+                        <div class="col-md-4 col-lg-3 container-fluid">
+                            <div class="loading-skeleton loading-card mb-4"></div>
+                        </div>
+                        <div class="col-md-4 col-lg-3 container-fluid">
+                            <div class="loading-skeleton loading-card mb-4"></div>
+                        </div>
+                        <div class="col-md-4 col-lg-3 container-fluid">
+                            <div class="loading-skeleton loading-card mb-4"></div>
+                        </div>
+                    </div>
+                </div>
+
+            </main>
+        </div>
+    </div>
+
+    <script src="js/bootstrap.bundle.min.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/common.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/wallet-sidebar.js"></script>
+    <script src="js/footer.js"></script>
+    <script src="js/index_js.js"></script>
+</body>
+
+</html>

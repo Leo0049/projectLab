@@ -1,0 +1,20 @@
+[
+    {
+        "id": 1,
+        "name": "1廳",
+        "totalRows": 8,
+        "totalCols": 12
+    },
+    {
+        "id": 2,
+        "name": "IMAX廳",
+        "totalRows": 10,
+        "totalCols": 15
+    },
+    {
+        "id": 3,
+        "name": "VIP廳",
+        "totalRows": 5,
+        "totalCols": 8
+    }
+]

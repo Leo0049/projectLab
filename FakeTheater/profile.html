@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>個人專區 - 電影購票系統</title>
+    <link href="css/bootstrap.min.css" rel="stylesheet">
+    <link href="css/custom.css" rel="stylesheet">
+</head>
+
+<body>
+
+    <!-- Top Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="index.html">FakeTheater</a>
+            <button class="navbar-toggler collapsed" type="button" data-bs-toggle="collapse"
+                data-bs-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false"
+                aria-label="Toggle navigation">
+                <span class="line"></span>
+                <span class="line"></span>
+                <span class="line"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarSupportedContent">
+                <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+                    <!-- Mobile only links -->
+                    <li class="nav-item d-lg-none">
+                        <a class="nav-link" href="showtime.html">場次查詢</a>
+                    </li>
+                    <li class="nav-item d-lg-none">
+                        <a class="nav-link" href="schedule.html">電影時刻表</a>
+                    </li>
+                    <li class="nav-item d-lg-none">
+                        <a class="nav-link" href="booking.html">線上訂票</a>
+                    </li>
+                    <hr class="d-lg-none text-white-50">
+                    <!-- 動態內容由 auth.js 生成 -->
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="nav-register-btn">註冊</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link btn btn-outline-light btn-sm ms-2" href="#" id="nav-login-btn">登入</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Left Sidebar -->
+            <nav id="sidebar" class="col-md-3 col-lg-2 d-md-block bg-dark sidebar collapse">
+                <div class="position-sticky pt-3">
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="sidebarstyle nav-link border-bottom text-white my-2  
+                            d-flex justify-content-center align-items-center rounded-top fs-5"
+                                href="showtime.html">場次查詢</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="sidebarstyle nav-link border-bottom text-white my-2 
+                            d-flex justify-content-center align-items-center rounded-top fs-5"
+                                href="schedule.html">電影時刻表</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="sidebarstyle nav-link border-bottom text-white my-2 
+                            d-flex justify-content-center align-items-center rounded-top fs-5"
+                                href="booking.html">線上訂票</a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+
+            <!-- Main Content Area -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+                <div
+                    class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2">個人專區</h1>
+                </div>
+
+                <!-- Balance -->
+                <div class="card mb-4">
+                    <div class="card-header bg-primary text-white">
+                        當前餘額
+                    </div>
+                    <div class="card-body d-flex justify-content-between align-items-center">
+                        <h3 class="mb-0">NT$ <span id="current_amount" class="user-balance">0</span></h3>
+                        <button class="btn btn-primary" id="nav-deposit-btn">
+                            儲值
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Profile Update -->
+                <div class="row">
+                    <div class="col-lg-12">
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                修改用戶資料
+                            </div>
+                            <div class="card-body">
+                                <form id="update-profile-form">
+                                    <div class="row">
+                                        <div class="col-md-8">
+                                            <label for="usernameUpdate" class="form-label">新用戶名</label>
+                                            <input type="text" class="form-control" id="usernameUpdate"
+                                                placeholder="輸入新名稱">
+                                        </div>
+                                        <div class="col-md-4 d-flex align-items-end">
+                                            <button id="changeUsername" type="submit" class="btn btn-success w-100">
+                                                更新用戶名
+                                            </button>
+                                        </div>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Transaction History -->
+                <div class="card">
+                    <div class="card-header">
+                        消費紀錄
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover" id="transaction-table">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th>#</th>
+                                        <th>類型</th>
+                                        <th>電影</th>
+                                        <th>日期 / 場次</th>
+                                        <th>金額</th>
+                                        <th>時間</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="transaction-list">
+                                    <!-- 動態載入 -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <div id="no-transactions" class="text-center text-muted py-4" style="display: none;">
+                            <p class="mt-2">暫無消費紀錄</p>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="js/bootstrap.bundle.min.js"></script>
+    <script src="js/common.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/wallet-sidebar.js"></script>
+    <script src="js/footer.js"></script>
+    <script>
+        // 個人專區專用邏輯
+        document.addEventListener('DOMContentLoaded', function () {
+            // 檢查登入狀態
+            const userInfo = JSON.parse(localStorage.getItem('userInfo') || 'null');
+            if (!userInfo) {
+                alert('請先登入');
+                window.location.href = 'index.html';
+                return;
+            }
+
+            // 載入餘額
+            const balanceElement = document.getElementById('current_amount');
+            if (balanceElement) {
+                balanceElement.textContent = userInfo.balance || 0;
+            }
+
+            // 載入用戶名到輸入框
+            const usernameInput = document.getElementById('usernameUpdate');
+            if (usernameInput) {
+                usernameInput.placeholder = userInfo.username || '輸入新名稱';
+            }
+
+            // 載入消費紀錄
+            loadTransactions();
+
+            // 更新用戶名
+            const updateForm = document.getElementById('update-profile-form');
+            if (updateForm) {
+                updateForm.addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    const newName = document.getElementById('usernameUpdate').value.trim();
+
+                    if (!newName) {
+                        AuthManager.showToast('請輸入有效的名稱', 'warning');
+                        return;
+                    }
+
+                    if (AuthManager.updateUsername(newName)) {
+                        AuthManager.showToast('用戶名已更新！', 'success');
+                        document.getElementById('usernameUpdate').value = '';
+                        document.getElementById('usernameUpdate').placeholder = newName;
+                    }
+                });
+            }
+        });
+
+        // 載入消費紀錄
+        function loadTransactions() {
+            const transactions = JSON.parse(localStorage.getItem('transactions') || '[]');
+            const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
+
+            // 過濾當前用戶的交易
+            const userTransactions = transactions.filter(t => t.userId === userInfo.id);
+
+            const tbody = document.getElementById('transaction-list');
+            const noTransactions = document.getElementById('no-transactions');
+
+            if (userTransactions.length === 0) {
+                tbody.innerHTML = '';
+                noTransactions.style.display = 'block';
+                return;
+            }
+
+            noTransactions.style.display = 'none';
+
+            // 按時間倒序排列
+            userTransactions.sort((a, b) => b.id - a.id);
+
+            tbody.innerHTML = userTransactions.map((t, index) => `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td>
+                        <span class="badge ${t.amount > 0 ? 'bg-success' : 'bg-danger'}">
+                            ${t.type}
+                        </span>
+                    </td>
+                    <td class="small">${t.movieTitle || '-'}</td>
+                    <td class="small">${t.movieDate ? `${t.movieDate} ${t.showtime || ''}` : '-'}</td>
+                    <td class="${t.amount > 0 ? 'text-success' : 'text-danger'} fw-bold">
+                        ${t.amount > 0 ? '+' : ''}$${t.amount}
+                    </td>
+                    <td class="text-muted small">${t.date}</td>
+                </tr>
+            `).join('');
+        }
+    </script>
+</body>
+
+</html>

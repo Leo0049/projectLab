@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>電影時刻表 - 電影購票系統</title>
+    <link href="css/bootstrap.min.css" rel="stylesheet">
+    <link href="css/custom.css" rel="stylesheet">
+</head>
+
+<body>
+
+    <!-- Top Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="index.html">FakeTheater</a>
+            <button class="navbar-toggler collapsed" type="button" data-bs-toggle="collapse"
+                data-bs-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false"
+                aria-label="Toggle navigation">
+                <span class="line"></span>
+                <span class="line"></span>
+                <span class="line"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarSupportedContent">
+                <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+                    <!-- Mobile only links -->
+                    <li class="nav-item d-lg-none">
+                        <a class="nav-link" href="showtime.html">場次查詢</a>
+                    </li>
+                    <li class="nav-item d-lg-none">
+                        <a class="nav-link" href="schedule.html">電影時刻表</a>
+                    </li>
+                    <li class="nav-item d-lg-none">
+                        <a class="nav-link" href="booking.html">線上訂票</a>
+                    </li>
+                    <hr class="d-lg-none text-white-50">
+                    <!-- 動態內容由 auth.js 生成 -->
+                    <li class="nav-item">
+                        <a class="nav-link btn btn-outline-light" href="#" id="nav-register-btn">註冊</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link btn btn-outline-light btn-sm ms-2" href="#" id="nav-login-btn">登入</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Left Sidebar -->
+            <nav id="sidebar" class="col-md-3 col-lg-2 d-md-block bg-dark sidebar collapse">
+                <div class="position-sticky pt-3">
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="sidebarstyle nav-link border-bottom text-white my-2  
+                            d-flex justify-content-center align-items-center rounded-top fs-5"
+                                href="showtime.html">場次查詢</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="sidebarstyle nav-link border-bottom text-white my-2 
+                            d-flex justify-content-center align-items-center rounded-top fs-5"
+                                href="schedule.html">電影時刻表</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="sidebarstyle nav-link border-bottom text-white my-2 
+                            d-flex justify-content-center align-items-center rounded-top fs-5"
+                                href="booking.html">線上訂票</a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+
+            <!-- Main Content Area -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+                <div
+                    class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2">電影時刻表</h1>
+                </div>
+
+                <!-- Date Selection -->
+                <div class="mb-4">
+                    <div class="btn-group flex-wrap" role="group" aria-label="日期選擇" id="date-buttons">
+                        <!-- Date buttons will be rendered here by JavaScript -->
+                    </div>
+                </div>
+
+                <!-- Schedule Display -->
+                <div id="schedule-container">
+                    <!-- Schedule will be rendered here by JavaScript -->
+                </div>
+
+            </main>
+        </div>
+    </div>
+
+    <script src="js/bootstrap.bundle.min.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/common.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/wallet-sidebar.js"></script>
+    <script src="js/footer.js"></script>
+    <script src="js/schedule.js"></script>
+</body>
+
+</html>

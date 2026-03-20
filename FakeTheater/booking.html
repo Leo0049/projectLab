@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>線上訂票 - 電影購票系統</title>
+    <link href="css/bootstrap.min.css" rel="stylesheet">
+    <link href="css/custom.css" rel="stylesheet">
+</head>
+
+<body>
+
+    <!-- Top Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="index.html"> FakeTheater</a>
+            <button class="navbar-toggler collapsed" type="button" data-bs-toggle="collapse"
+                data-bs-target="#navbarSupportedContent">
+                <span class="line"></span>
+                <span class="line"></span>
+                <span class="line"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarSupportedContent">
+                <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+                    <!-- Mobile only links -->
+                    <li class="nav-item d-lg-none">
+                        <a class="nav-link" href="showtime.html">場次查詢</a>
+                    </li>
+                    <li class="nav-item d-lg-none">
+                        <a class="nav-link" href="schedule.html">電影時刻表</a>
+                    </li>
+                    <li class="nav-item d-lg-none">
+                        <a class="nav-link" href="booking.html">線上訂票</a>
+                    </li>
+                    <hr class="d-lg-none text-white-50">
+                    <!-- 動態內容由 auth.js 生成 -->
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="nav-register-btn">註冊</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link btn btn-outline-light btn-sm ms-2" href="#" id="nav-login-btn">登入</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Left Sidebar -->
+            <nav id="sidebar" class="col-md-3 col-lg-2 d-md-block bg-dark sidebar collapse">
+                <div class="position-sticky pt-3">
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="sidebarstyle nav-link border-bottom text-white my-2  
+                            d-flex justify-content-center align-items-center rounded-top fs-5"
+                                href="showtime.html">場次查詢</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="sidebarstyle nav-link border-bottom text-white my-2 
+                            d-flex justify-content-center align-items-center rounded-top fs-5"
+                                href="schedule.html">電影時刻表</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="sidebarstyle nav-link border-bottom text-white my-2 
+                            d-flex justify-content-center align-items-center rounded-top fs-5"
+                                href="booking.html">線上訂票</a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+
+            <!-- Main Content Area -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+                <div
+                    class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2">線上訂票</h1>
+                </div>
+
+                <!-- Movie Info (dynamic) -->
+                <div id="movie-info" class="mb-4">
+                    <!-- Movie info will be rendered here by JavaScript -->
+                </div>
+
+                <!-- Selection Dropdowns -->
+                <div class="row g-3 mb-4">
+                    <div class="col-md-4">
+                        <label for="movie-select" class="form-label">1. 選擇電影</label>
+                        <select id="movie-select" class="form-select">
+                            <option value="">載入中...</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="date-select" class="form-label">2. 選擇日期</label>
+                        <select id="date-select" class="form-select" disabled>
+                            <option value="">請先選擇電影...</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="showtime-select" class="form-label">3. 選擇場次</label>
+                        <select id="showtime-select" class="form-select" disabled>
+                            <option value="">請先選擇日期...</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Seat Map -->
+                <div class="card">
+                    <div class="card-header">座位圖</div>
+                    <div class="card-body">
+                        <div class="d-flex justify-content-center mb-3">
+                            <ul class="d-flex list-inline">
+                                <li class="d-flex align-items-center justify-content-center list-inline-item">
+                                    <div class="seat"></div> 空位
+                                </li>
+                                <li class="d-flex align-items-center justify-content-center list-inline-item">
+                                    <div class="seat selected"></div> 您的選擇
+                                </li>
+                                <li class="d-flex align-items-center justify-content-center list-inline-item">
+                                    <div class="seat occupied"></div> 已預訂
+                                </li>
+                            </ul>
+                        </div>
+                        <div id="seat-map-container">
+                            <div class="screen">銀幕</div>
+                            <div id="seat-map">
+                            </div>
+                        </div>
+                        <div class="text-center mt-4">
+                            <p>您選擇了 <span id="selected-seats-count" class="fw-bold text-primary">0</span> 張票</p>
+                            <p>總金額: <span class="text-success fw-bold">NT$ <span id="total-price">0</span></span></p>
+                            <button id="confirm-booking" class="btn btn-success btn-lg" disabled>
+                                確認購票
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+            </main>
+        </div>
+    </div>
+
+    <script src="js/bootstrap.bundle.min.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/common.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/wallet-sidebar.js"></script>
+    <script src="js/checkout-sidebar.js"></script>
+    <script src="js/footer.js"></script>
+    <script src="js/booking.js"></script>
+</body>
+
+</html>

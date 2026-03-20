@@ -1,0 +1,483 @@
+[
+    {
+        "id": 1,
+        "movieId": 1,
+        "theaterId": 1,
+        "date": "2025-12-22",
+        "time": "10:30",
+        "price": 250
+    },
+    {
+        "id": 2,
+        "movieId": 1,
+        "theaterId": 1,
+        "date": "2025-12-22",
+        "time": "13:00",
+        "price": 250
+    },
+    {
+        "id": 3,
+        "movieId": 1,
+        "theaterId": 2,
+        "date": "2025-12-22",
+        "time": "18:00",
+        "price": 350
+    },
+    {
+        "id": 4,
+        "movieId": 1,
+        "theaterId": 1,
+        "date": "2025-12-23",
+        "time": "10:30",
+        "price": 250
+    },
+    {
+        "id": 5,
+        "movieId": 1,
+        "theaterId": 2,
+        "date": "2025-12-23",
+        "time": "15:30",
+        "price": 350
+    },
+    {
+        "id": 6,
+        "movieId": 2,
+        "theaterId": 2,
+        "date": "2025-12-22",
+        "time": "11:00",
+        "price": 350
+    },
+    {
+        "id": 7,
+        "movieId": 2,
+        "theaterId": 2,
+        "date": "2025-12-22",
+        "time": "14:00",
+        "price": 350
+    },
+    {
+        "id": 8,
+        "movieId": 2,
+        "theaterId": 1,
+        "date": "2025-12-22",
+        "time": "20:30",
+        "price": 280
+    },
+    {
+        "id": 9,
+        "movieId": 2,
+        "theaterId": 2,
+        "date": "2025-12-23",
+        "time": "13:00",
+        "price": 350
+    },
+    {
+        "id": 10,
+        "movieId": 3,
+        "theaterId": 3,
+        "date": "2025-12-22",
+        "time": "12:00",
+        "price": 380
+    },
+    {
+        "id": 11,
+        "movieId": 3,
+        "theaterId": 3,
+        "date": "2025-12-22",
+        "time": "15:00",
+        "price": 380
+    },
+    {
+        "id": 12,
+        "movieId": 3,
+        "theaterId": 1,
+        "date": "2025-12-22",
+        "time": "19:30",
+        "price": 280
+    },
+    {
+        "id": 13,
+        "movieId": 3,
+        "theaterId": 3,
+        "date": "2025-12-23",
+        "time": "14:00",
+        "price": 380
+    },
+    {
+        "id": 14,
+        "movieId": 4,
+        "theaterId": 2,
+        "date": "2025-12-22",
+        "time": "10:00",
+        "price": 350
+    },
+    {
+        "id": 15,
+        "movieId": 4,
+        "theaterId": 2,
+        "date": "2025-12-22",
+        "time": "14:30",
+        "price": 350
+    },
+    {
+        "id": 16,
+        "movieId": 4,
+        "theaterId": 2,
+        "date": "2025-12-22",
+        "time": "19:00",
+        "price": 350
+    },
+    {
+        "id": 17,
+        "movieId": 4,
+        "theaterId": 1,
+        "date": "2025-12-23",
+        "time": "11:00",
+        "price": 280
+    },
+    {
+        "id": 18,
+        "movieId": 5,
+        "theaterId": 2,
+        "date": "2025-12-22",
+        "time": "13:30",
+        "price": 350
+    },
+    {
+        "id": 19,
+        "movieId": 5,
+        "theaterId": 2,
+        "date": "2025-12-22",
+        "time": "18:00",
+        "price": 350
+    },
+    {
+        "id": 20,
+        "movieId": 5,
+        "theaterId": 1,
+        "date": "2025-12-23",
+        "time": "21:00",
+        "price": 280
+    },
+    {
+        "id": 21,
+        "movieId": 5,
+        "theaterId": 2,
+        "date": "2025-12-24",
+        "time": "15:00",
+        "price": 350
+    },
+    {
+        "id": 22,
+        "movieId": 6,
+        "theaterId": 1,
+        "date": "2025-12-24",
+        "time": "10:00",
+        "price": 250
+    },
+    {
+        "id": 23,
+        "movieId": 6,
+        "theaterId": 1,
+        "date": "2025-12-24",
+        "time": "14:00",
+        "price": 250
+    },
+    {
+        "id": 24,
+        "movieId": 6,
+        "theaterId": 3,
+        "date": "2025-12-26",
+        "time": "16:30",
+        "price": 380
+    },
+    {
+        "id": 25,
+        "movieId": 6,
+        "theaterId": 1,
+        "date": "2025-12-23",
+        "time": "10:30",
+        "price": 250
+    },
+    {
+        "id": 26,
+        "movieId": 7,
+        "theaterId": 1,
+        "date": "2025-12-27",
+        "time": "11:30",
+        "price": 250
+    },
+    {
+        "id": 27,
+        "movieId": 7,
+        "theaterId": 1,
+        "date": "2025-12-26",
+        "time": "16:00",
+        "price": 250
+    },
+    {
+        "id": 28,
+        "movieId": 7,
+        "theaterId": 2,
+        "date": "2025-12-25",
+        "time": "20:00",
+        "price": 350
+    },
+    {
+        "id": 29,
+        "movieId": 7,
+        "theaterId": 1,
+        "date": "2025-12-25",
+        "time": "13:30",
+        "price": 250
+    },
+    {
+        "id": 30,
+        "movieId": 8,
+        "theaterId": 2,
+        "date": "2025-12-26",
+        "time": "12:30",
+        "price": 350
+    },
+    {
+        "id": 31,
+        "movieId": 8,
+        "theaterId": 2,
+        "date": "2025-12-24",
+        "time": "17:00",
+        "price": 350
+    },
+    {
+        "id": 32,
+        "movieId": 8,
+        "theaterId": 2,
+        "date": "2025-12-26",
+        "time": "21:30",
+        "price": 350
+    },
+    {
+        "id": 33,
+        "movieId": 8,
+        "theaterId": 1,
+        "date": "2025-12-27",
+        "time": "14:00",
+        "price": 280
+    },
+    {
+        "id": 34,
+        "movieId": 1,
+        "theaterId": 1,
+        "date": "2025-12-24",
+        "time": "10:30",
+        "price": 250
+    },
+    {
+        "id": 35,
+        "movieId": 1,
+        "theaterId": 2,
+        "date": "2025-12-24",
+        "time": "14:00",
+        "price": 350
+    },
+    {
+        "id": 36,
+        "movieId": 2,
+        "theaterId": 1,
+        "date": "2025-12-26",
+        "time": "11:00",
+        "price": 250
+    },
+    {
+        "id": 37,
+        "movieId": 3,
+        "theaterId": 3,
+        "date": "2025-12-27",
+        "time": "15:00",
+        "price": 380
+    },
+    {
+        "id": 38,
+        "movieId": 4,
+        "theaterId": 2,
+        "date": "2025-12-27",
+        "time": "18:00",
+        "price": 350
+    },
+    {
+        "id": 39,
+        "movieId": 5,
+        "theaterId": 2,
+        "date": "2025-12-28",
+        "time": "20:00",
+        "price": 350
+    },
+    {
+        "id": 40,
+        "movieId": 6,
+        "theaterId": 1,
+        "date": "2025-12-27",
+        "time": "10:00",
+        "price": 250
+    },
+    {
+        "id": 41,
+        "movieId": 7,
+        "theaterId": 1,
+        "date": "2025-12-28",
+        "time": "13:00",
+        "price": 250
+    },
+    {
+        "id": 42,
+        "movieId": 8,
+        "theaterId": 2,
+        "date": "2025-12-26",
+        "time": "16:00",
+        "price": 350
+    },
+    {
+        "id": 43,
+        "movieId": 1,
+        "theaterId": 1,
+        "date": "2025-12-25",
+        "time": "11:00",
+        "price": 250
+    },
+    {
+        "id": 44,
+        "movieId": 2,
+        "theaterId": 2,
+        "date": "2025-12-23",
+        "time": "14:00",
+        "price": 350
+    },
+    {
+        "id": 45,
+        "movieId": 3,
+        "theaterId": 1,
+        "date": "2025-12-25",
+        "time": "16:30",
+        "price": 280
+    },
+    {
+        "id": 46,
+        "movieId": 4,
+        "theaterId": 2,
+        "date": "2025-12-29",
+        "time": "19:00",
+        "price": 350
+    },
+    {
+        "id": 47,
+        "movieId": 5,
+        "theaterId": 2,
+        "date": "2025-12-24",
+        "time": "21:00",
+        "price": 350
+    },
+    {
+        "id": 48,
+        "movieId": 6,
+        "theaterId": 3,
+        "date": "2025-12-28",
+        "time": "10:00",
+        "price": 380
+    },
+    {
+        "id": 49,
+        "movieId": 7,
+        "theaterId": 1,
+        "date": "2025-12-28",
+        "time": "12:00",
+        "price": 250
+    },
+    {
+        "id": 50,
+        "movieId": 8,
+        "theaterId": 2,
+        "date": "2025-12-28",
+        "time": "15:00",
+        "price": 350
+    },
+    {
+        "id": 51,
+        "movieId": 1,
+        "theaterId": 2,
+        "date": "2025-12-29",
+        "time": "10:00",
+        "price": 350
+    },
+    {
+        "id": 52,
+        "movieId": 2,
+        "theaterId": 1,
+        "date": "2025-12-29",
+        "time": "13:00",
+        "price": 250
+    },
+    {
+        "id": 53,
+        "movieId": 3,
+        "theaterId": 3,
+        "date": "2025-12-29",
+        "time": "15:30",
+        "price": 380
+    },
+    {
+        "id": 54,
+        "movieId": 4,
+        "theaterId": 2,
+        "date": "2025-12-29",
+        "time": "18:00",
+        "price": 350
+    },
+    {
+        "id": 55,
+        "movieId": 5,
+        "theaterId": 1,
+        "date": "2025-12-29",
+        "time": "20:30",
+        "price": 280
+    },
+    {
+        "id": 56,
+        "movieId": 6,
+        "theaterId": 1,
+        "date": "2025-12-29",
+        "time": "11:00",
+        "price": 250
+    },
+    {
+        "id": 57,
+        "movieId": 7,
+        "theaterId": 2,
+        "date": "2025-12-29",
+        "time": "14:00",
+        "price": 350
+    },
+    {
+        "id": 58,
+        "movieId": 8,
+        "theaterId": 2,
+        "date": "2025-12-29",
+        "time": "17:00",
+        "price": 350
+    },
+    {
+        "id": 59,
+        "movieId": 6,
+        "theaterId": 2,
+        "date": "2025-12-29",
+        "time": "17:00",
+        "price": 350
+    }
+    ,
+    {
+        "id": 60,
+        "movieId": 7,
+        "theaterId": 2,
+        "date": "2025-12-26",
+        "time": "17:00",
+        "price": 350
+    }
+]
