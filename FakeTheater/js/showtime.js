@@ -123,74 +123,101 @@ document.addEventListener('DOMContentLoaded', async function () {
         renderResults(results);
     }
 
-    // 渲染結果
+    // 渲染結果：依電影分組，時段以「時間」為主視覺
     function renderResults(results) {
         if (!resultsContainer) return;
 
         if (results.length === 0) {
             resultsContainer.innerHTML = `
                 <div class="col-12">
-                    <div class="alert alert-info">
-                        <i class="fas fa-info-circle"></i> 沒有找到符合條件的場次，請調整查詢條件。
+                    <div class="empty-state">
+                        <span class="empty-icon">🔍</span>
+                        <p class="mb-1">沒有找到符合條件的場次</p>
+                        <p class="small mb-0">試著換個日期，或把影廳條件改成「所有影廳」。</p>
                     </div>
                 </div>
             `;
             return;
         }
 
-        // 顯示結果統計
+        // 依電影分組（維持原本已排序的先後順序）
+        const groups = [];
+        const groupIndex = new Map();
+
+        results.forEach(showtime => {
+            if (!groupIndex.has(showtime.movieId)) {
+                groupIndex.set(showtime.movieId, groups.length);
+                groups.push({
+                    movie: allMovies.find(m => m.id === showtime.movieId),
+                    movieId: showtime.movieId,
+                    title: showtime.movieTitle,
+                    poster: showtime.moviePoster,
+                    rating: showtime.movieRating,
+                    showtimes: []
+                });
+            }
+            groups[groupIndex.get(showtime.movieId)].showtimes.push(showtime);
+        });
+
+        // 結果橫跨多天時，時段上要額外標出日期
+        const multiDay = new Set(results.map(st => st.date)).size > 1;
+
         const statsHtml = `
             <div class="col-12 mb-3">
-                <div class="alert alert-light border">
-                     找到 <strong>${results.length}</strong> 個場次
+                <div class="alert alert-light border mb-0">
+                    找到 <strong>${groups.length}</strong> 部電影、<strong>${results.length}</strong> 個場次
                 </div>
             </div>
         `;
 
-        resultsContainer.innerHTML = statsHtml + results.map(showtime => `
-            <div class="col-md-6 col-lg-4 mb-4">
-                <div class="card h-100 showtime-card shadow-sm">
+        resultsContainer.innerHTML = statsHtml + groups.map(group => `
+            <div class="col-12 mb-3">
+                <div class="card showtime-card">
                     <div class="row g-0">
-                        <div class="col-4">
-                            <a href="movie-detail.html?id=${showtime.movieId}" title="查看 ${showtime.movieTitle} 詳情">
-                                <img src="${showtime.moviePoster}" class="img-fluid rounded-start h-100" 
-                                     alt="${showtime.movieTitle}" style="object-fit: cover; cursor: pointer;">
+                        <div class="col-md-2 col-4 showtime-poster-col">
+                            <a href="movie-detail.html?id=${group.movieId}" class="showtime-poster-link"
+                               title="查看 ${escapeHtml(group.title)} 詳情">
+                                <img src="${escapeHtml(group.poster)}" class="showtime-poster"
+                                     alt="${escapeHtml(group.title)}">
                             </a>
                         </div>
-                        <div class="col-8">
+                        <div class="col-md-10 col-8">
                             <div class="card-body">
-                                <h6 class="card-title text-truncate" title="${showtime.movieTitle}">
-                                    ${showtime.movieTitle}
-                                </h6>
-                                <p class="card-text mb-1">
-                                    <small class="text-muted">
-                                        <i class="far fa-calendar"></i> ${showtime.date}
-                                    </small>
-                                </p>
-                                <p class="card-text mb-1">
-                                    <small class="text-muted">
-                                        <i class="far fa-clock"></i> ${showtime.time}
-                                    </small>
-                                </p>
-                                <p class="card-text mb-1">
-                                    <small class="text-muted">
-                                        <i class="fas fa-film"></i> ${showtime.theaterName}
-                                    </small>
-                                </p>
-                                <p class="card-text mb-2">
-                                    <span class="badge bg-success">NT$ ${showtime.price}</span>
-                                    <span class="badge bg-warning text-dark">⭐ ${showtime.movieRating}</span>
-                                </p>
-                                <a href="booking.html?showtime=${showtime.id}&movie=${showtime.movieId}&date=${showtime.date}&time=${showtime.time}" 
-                                   class="btn btn-primary btn-sm">
-                                    立即訂票
-                                </a>
+                                <h5 class="card-title mb-1">
+                                    <a href="movie-detail.html?id=${group.movieId}"
+                                       class="text-decoration-none link-body-emphasis">${escapeHtml(group.title)}</a>
+                                </h5>
+                                <div class="movie-meta mb-3">
+                                    <span class="meta-rating">⭐ ${group.rating}</span>
+                                    ${group.movie ? `
+                                        <span class="meta-sep">·</span><span>${escapeHtml(group.movie.duration)}</span>
+                                        <span class="meta-sep">·</span><span>${escapeHtml(group.movie.ratingClass)}</span>
+                                    ` : ''}
+                                    <span class="meta-sep">·</span><span>${group.showtimes.length} 個場次</span>
+                                </div>
+                                <div class="showtime-slots">
+                                    ${group.showtimes.map(st => `
+                                        <a class="showtime-slot"
+                                           href="booking.html?showtime=${st.id}&movie=${st.movieId}&date=${st.date}&time=${st.time}">
+                                            <span class="slot-time">${st.time}</span>
+                                            <span class="slot-meta">
+                                                ${multiDay ? escapeHtml(formatShortDate(st.date)) + ' · ' : ''}${escapeHtml(st.theaterName)} · NT$${st.price}
+                                            </span>
+                                        </a>
+                                    `).join('')}
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
         `).join('');
+    }
+
+    // 2026-08-10 → 8/10
+    function formatShortDate(dateStr) {
+        const [, month, day] = dateStr.split('-');
+        return `${parseInt(month)}/${parseInt(day)}`;
     }
 
     // 更新電影詳情區塊

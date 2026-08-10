@@ -24,6 +24,7 @@ const BookingPage = {
             showtimeSelect: document.getElementById('showtime-select'),
             movieInfo: document.getElementById('movie-info'),
             seatMap: document.getElementById('seat-map'),
+            seatMapScroll: document.getElementById('seat-map-scroll'),
             seatMapContainer: document.getElementById('seat-map-container'),
             seatCount: document.getElementById('selected-seats-count'),
             totalPrice: document.getElementById('total-price'),
@@ -79,6 +80,7 @@ const BookingPage = {
         this.elements.dateSelect.addEventListener('change', () => this.onDateChange());
         this.elements.showtimeSelect.addEventListener('change', () => this.onShowtimeChange());
         this.elements.confirmBtn.addEventListener('click', () => this.onConfirm());
+        window.addEventListener('resize', () => this.updateScrollHint(), { passive: true });
     },
 
     /* -------------------------------------------------------------- *
@@ -207,7 +209,19 @@ const BookingPage = {
             seat.addEventListener('click', () => this.toggleSeat(seat));
         });
 
+        this.updateScrollHint();
         this.updateSummary();
+    },
+
+    /**
+     * 座位圖超出可視寬度時（大廳 + 手機），顯示左右滑動提示與邊緣漸層
+     */
+    updateScrollHint() {
+        const { seatMap, seatMapScroll } = this.elements;
+        if (!seatMap || !seatMapScroll) return;
+
+        const scrollable = seatMap.scrollWidth > seatMap.clientWidth + 1;
+        seatMapScroll.classList.toggle('is-scrollable', scrollable);
     },
 
     toggleSeat(seatEl) {

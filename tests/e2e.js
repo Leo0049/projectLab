@@ -122,9 +122,9 @@ async function testBookingFlow(browser, errors) {
     check('日期按鈕 = 7', await page.locator('.date-btn').count() === 7);
 
     await page.goto(`${BASE}/movie-detail.html?id=1`);
-    await page.waitForSelector('.showtime-detail-btn');
-    check('詳情頁有場次', await page.locator('.showtime-detail-btn').count() > 0);
-    const href = await page.locator('.showtime-detail-btn').first().getAttribute('href');
+    await page.waitForSelector('.showtime-slot');
+    check('詳情頁有場次', await page.locator('.showtime-slot').count() > 0);
+    const href = await page.locator('.showtime-slot').first().getAttribute('href');
     check('場次連結指向訂票頁', href.startsWith('booking.html?showtime='), href);
 
     console.log('\n# 登入');
@@ -183,6 +183,8 @@ async function testBookingFlow(browser, errors) {
     await page.waitForTimeout(600);
     check('消費紀錄有資料', await page.locator('#transaction-list tr').count() >= 1);
     check('個人專區餘額正確', parseInt(await page.locator('#current_amount').textContent()) === 2000 - total);
+    check('票券統計：可使用 2 張', (await page.locator('#stat-unused').textContent()) === '2');
+    check('票券統計：累計消費正確', (await page.locator('#stat-spent').textContent()) === String(total));
 
     console.log('\n# 註冊新帳號');
     await page.goto(`${BASE}/index.html`);

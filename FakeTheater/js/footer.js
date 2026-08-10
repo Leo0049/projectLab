@@ -5,6 +5,25 @@
 const Footer = {
     init() {
         this.renderFooter();
+        this.setupResponsiveGroups();
+    },
+
+    /**
+     * 頁尾連結區在手機版預設收合、桌機版恆常展開。
+     * <details> 關閉時內容會被瀏覽器隱藏，無法純靠 CSS 覆寫，因此用 JS 同步 open 狀態。
+     */
+    setupResponsiveGroups() {
+        const groups = document.querySelectorAll('#site-footer .footer-group');
+        if (groups.length === 0) return;
+
+        const desktop = window.matchMedia('(min-width: 768px)');
+
+        const sync = () => {
+            groups.forEach(group => { group.open = desktop.matches; });
+        };
+
+        sync();
+        desktop.addEventListener('change', sync);
     },
 
     renderFooter() {
@@ -45,38 +64,38 @@ const Footer = {
                         </div>
                     </div>
 
-                    <!-- 快速連結 -->
-                    <div class="footer-links">
-                        <h5 class="footer-heading">快速連結</h5>
+                    <!-- 快速連結（手機版可收合，桌機版恆常展開） -->
+                    <details class="footer-group" open>
+                        <summary class="footer-heading">快速連結</summary>
                         <ul class="footer-nav">
                             <li><a href="index.html">首頁</a></li>
                             <li><a href="showtime.html">場次查詢</a></li>
                             <li><a href="schedule.html">電影時刻表</a></li>
                             <li><a href="booking.html">線上訂票</a></li>
                         </ul>
-                    </div>
+                    </details>
 
                     <!-- 客戶服務 -->
-                    <div class="footer-links">
-                        <h5 class="footer-heading">客戶服務</h5>
+                    <details class="footer-group" open>
+                        <summary class="footer-heading">客戶服務</summary>
                         <ul class="footer-nav">
                             <li><a href="#">常見問題</a></li>
                             <li><a href="#">退票規則</a></li>
                             <li><a href="#">會員權益</a></li>
                             <li><a href="#">優惠活動</a></li>
                         </ul>
-                    </div>
+                    </details>
 
                     <!-- 聯絡我們 -->
-                    <div class="footer-contact">
-                        <h5 class="footer-heading">聯絡我們</h5>
+                    <details class="footer-group" open>
+                        <summary class="footer-heading">聯絡我們</summary>
                         <ul class="footer-nav">
-                            <li> <a href="mailto:service@faketheater.com">service@faketheater.com</a></li>
-                            <li> 客服專線: 04-1234-5678 </li>
-                            <li> 服務時間: 09:00 - 22:00 </li>
-                            <li> 台中市XX區XX路XX號 </li>
+                            <li><a href="mailto:service@faketheater.com">service@faketheater.com</a></li>
+                            <li>客服專線: 04-1234-5678</li>
+                            <li>服務時間: 09:00 - 22:00</li>
+                            <li>台中市XX區XX路XX號</li>
                         </ul>
-                    </div>
+                    </details>
                 </div>
 
                 <!-- 底部版權 -->
