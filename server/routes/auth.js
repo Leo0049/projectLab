@@ -12,7 +12,14 @@ const USERNAME_MAX = 30;
 const PASSWORD_MIN = 6;
 
 function publicUser(user) {
-    return { id: user.id, username: user.username, email: user.email, balance: user.balance };
+    return {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        balance: user.balance,
+        // 前端用來決定要不要顯示管理後台入口；真正的授權仍在伺服器
+        role: user.role || 'user'
+    };
 }
 
 /**
@@ -43,7 +50,7 @@ router.post('/register', (req, res) => {
         'INSERT INTO users (username, email, password_hash, balance) VALUES (?, ?, ?, 0)'
     ).run(username, finalEmail, passwordHash).lastInsertRowid;
 
-    const user = { id, username, email: finalEmail, balance: 0 };
+    const user = { id, username, email: finalEmail, balance: 0, role: 'user' };
     res.status(201).json({ user, token: signToken(user) });
 });
 

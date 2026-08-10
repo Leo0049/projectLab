@@ -23,6 +23,7 @@ npm start
 | `demo` | `demo123` | 2000 |
 | `johndoe` | `password123` | 1000 |
 | `janedoe` | `securepass` | 500 |
+| `admin` | `admin123` | 0（管理員，可進管理後台） |
 
 密碼在匯入時就會經過 bcrypt hash，資料庫裡沒有明文。
 
@@ -30,7 +31,7 @@ npm start
 
 ```bash
 npx playwright install chromium   # 只有第一次需要
-npm test          # 後端 44 項 + 瀏覽器 53 項
+npm test          # 後端 86 項 + 瀏覽器 83 項
 npm run test:api  # 只跑後端
 npm run test:e2e  # 只跑瀏覽器
 ```
@@ -48,18 +49,22 @@ server/                 後端
     schema.sql          資料表定義
     index.js            連線、WAL、交易輔助
     seed.js             匯入種子資料、排片
-  middleware/           JWT 驗證、錯誤處理
-  routes/               API 端點
-  services/             座位鎖定與訂票的核心邏輯
+  middleware/           JWT 驗證、管理員授權、錯誤處理
+  payments/signature.js 綠界 CheckMacValue 簽章演算法
+  routes/               API 端點（含模擬金流商 sandbox.js）
+  services/             座位鎖定、訂票退票、金流、後台的核心邏輯
   utils/                日期、HTTP 錯誤
 
 FakeTheater/            前端（由 Express 直接提供）
-  *.html                六個頁面
+  *.html                七個頁面
   js/api.js             API client，前端唯一對外的資料入口
   js/auth.js            登入狀態與錢包
+  js/sidebar.js         共用側邊欄（依角色顯示不同項目）
+  js/infinite-scroll.js 共用的無限滾動元件
   js/booking.js         訂票頁
-  js/checkout-sidebar.js結帳側邊欄
-  js/wallet-sidebar.js  票夾
+  js/checkout-sidebar.js結帳側邊欄（含座位保留倒數）
+  js/wallet-sidebar.js  票夾（使用、退票）
+  js/admin.js           管理後台
   css/custom.css        深色主題與所有自訂樣式
   data/*.json           種子資料來源
 
@@ -84,12 +89,15 @@ tests/
 避免兩筆交易都讀完才發現要寫同一列。任何一步失敗整筆回滾，
 不會出現「扣了錢沒有票」或「有票沒扣錢」。
 
-**第三層：資料庫唯一約束**
+**第三層：資料庫唯一索引**
 ```sql
-UNIQUE (showtime_id, seat_row, seat_col)   -- booking_seats
+CREATE UNIQUE INDEX idx_booking_seats_unique
+    ON booking_seats (showtime_id, seat_row, seat_col)
+    WHERE status != 'refunded';
 ```
-就算前兩層都被繞過，資料庫也不可能讓同一個位子存在兩筆。
-這是唯一不依賴應用層邏輯正確性的保證。
+就算前兩層都被繞過，資料庫也不可能讓同一個位子存在兩筆未退票紀錄。
+這是唯一不依賴應用層邏輯正確性的保證。用「部分」索引是為了讓退票後的紀錄留著對帳，
+同時把位子釋放出來重新賣（見〈退票〉）。
 
 ### 測試怎麼證明
 
@@ -101,6 +109,74 @@ UNIQUE (showtime_id, seat_row, seat_col)   -- booking_seats
 第二個測試特別重要：Node 是單執行緒，單一行程內的測試無法排除「只是剛好沒有真的並行」。
 用多行程直接打同一個資料庫檔案，驗證的才是資料庫層的保證。
 
+## 金流（沙盒）
+
+**購票是從錢包餘額扣款，儲值才走金流。** 這樣金流的整合面積小、責任單一，
+也符合多數售票 App 的做法。系統裡沒有任何「不用付錢就能加值」的端點。
+
+付款流程與綠界 ECPay 正式環境一致：
+
+```
+使用者按下儲值
+      │
+      ▼
+POST /api/payments/deposit      建立 pending 訂單，回傳已簽章的表單參數
+      │
+      ▼
+表單 POST 到金流商付款頁          沙盒是 /sandbox/checkout，正式環境改成綠界網址
+      │
+      ├─ 伺服器對伺服器通知 ─→ POST /api/payments/webhook   ← 真正入帳的地方
+      │                          驗簽 → 比對金額 → 入帳（冪等）
+      ▼
+瀏覽器導回 profile.html?order=…  前端再向後端確認訂單狀態，不相信網址參數
+```
+
+簽章使用綠界的 **CheckMacValue** 演算法（`server/payments/signature.js`）：
+參數字典序排序 → 前後接上 HashKey/HashIV → .NET 風格 URL encode → SHA256 → 轉大寫。
+驗證時用 `timingSafeEqual` 比對，避免以回應時間推測正確簽章。
+
+三個容易寫錯、測試都有涵蓋的地方：
+
+| 風險 | 作法 |
+|---|---|
+| 偽造回調 | 簽章驗證失敗直接 400，不入帳 |
+| 竄改金額 | 以我方訂單金額為準，回調金額不符就標記失敗 |
+| 重複通知 | 訂單進入終態後不再變更，金流商重送也只入帳一次 |
+
+要換成真的綠界／藍新：刪掉 `server/routes/sandbox.js`，把 `createDepositOrder()`
+裡的 `action` 改成金流商網址，填入正式的 MerchantID 與金鑰即可，參數與簽章規則不用動。
+
+## 退票
+
+| 規則 | 說明 |
+|---|---|
+| 可退條件 | 票券狀態為「未使用」 |
+| 時間限制 | 開演前 30 分鐘起不受理（`REFUND_CUTOFF_MINUTES`） |
+| 退款金額 | 票價扣除 10% 手續費（`REFUND_FEE_RATE`） |
+| 座位處理 | 立刻釋出，可以重新賣給別人 |
+
+退票後座位怎麼「既留下紀錄又能重新賣出」？靠**部分唯一索引**：
+
+```sql
+CREATE UNIQUE INDEX idx_booking_seats_unique
+    ON booking_seats (showtime_id, seat_row, seat_col)
+    WHERE status != 'refunded';
+```
+
+已退票的列被排除在索引之外，所以同一個座位可以同時存在「一筆已退票」與「一筆新售出」，
+歷史紀錄完整保留，也不需要刪除任何資料。
+
+## 管理後台
+
+以 `admin` 帳號登入後，側邊欄會出現「管理後台」。權限判斷在伺服器
+（`requireAdmin` 中介層一律從資料庫讀角色，不看權杖內容），
+一般會員即使直接開 `admin.html`，每支 API 也都會回 403。
+
+- **營運儀表板**：票房淨額（總額 − 退款）、售出／已使用／已退票張數、今日上座率、熱門電影排行
+- **場次管理**：排片、刪除（已售票的場次擋下）、依日期篩選、各場次上座率
+- **訂單管理**：跨使用者的訂單與座位明細，可代客退票
+- **會員列表**：餘額、訂單數、持票數
+
 ## 安全性設計
 
 | 項目 | 作法 |
@@ -111,6 +187,9 @@ UNIQUE (showtime_id, seat_row, seat_col)   -- booking_seats
 | 授權 | 票券、交易紀錄都以 token 中的使用者為範圍查詢 |
 | 錯誤訊息 | 帳號不存在與密碼錯誤回同一句話，避免被用來列舉帳號 |
 | 輸入驗證 | 座位範圍、張數上限、儲值金額上下限都在伺服器檢查 |
+| 授權分級 | 管理端點需 admin 角色，角色一律從資料庫讀取 |
+| 加值 | 沒有可直接加值的端點，一律經過金流回調並驗簽 |
+| 金流回調 | CheckMacValue 驗簽 + 金額比對 + 冪等處理 |
 | XSS | 前端所有動態插入的內容都經過 `escapeHtml()` |
 | 錯誤回應 | 非預期錯誤只回通用訊息，不洩漏堆疊或 SQL |
 
@@ -152,20 +231,43 @@ UNIQUE (showtime_id, seat_row, seat_col)   -- booking_seats
 | GET | `/api/tickets` | 我的票券（未使用／歷史）🔒 |
 | POST | `/api/tickets/:id/use` | 進場，開始倒數 🔒 |
 | GET | `/api/tickets/stats` | 票券統計 🔒 |
-| POST | `/api/wallet/deposit` | 儲值 🔒 |
-| GET | `/api/wallet/transactions` | 交易紀錄 🔒 |
+| POST | `/api/tickets/:id/refund` | 退票 🔒 |
+| GET | `/api/wallet/transactions` | 交易紀錄（分頁）🔒 |
+
+### 金流
+
+| 方法 | 路徑 | 說明 |
+|---|---|---|
+| POST | `/api/payments/deposit` | 建立儲值訂單，回傳金流商表單 🔒 |
+| POST | `/api/payments/webhook` | 金流商回調（以簽章驗身分，不需登入） |
+| GET | `/api/payments/orders/:orderNo` | 查詢訂單狀態 🔒 |
+| GET | `/api/payments/orders` | 儲值紀錄（分頁）🔒 |
+
+### 管理後台（需 admin 角色）
+
+| 方法 | 路徑 | 說明 |
+|---|---|---|
+| GET | `/api/admin/stats` | 營運儀表板 |
+| GET | `/api/admin/showtimes` | 場次列表（含上座率、分頁） |
+| POST | `/api/admin/showtimes` | 排片 |
+| DELETE | `/api/admin/showtimes/:id` | 刪除場次（已售票則擋下） |
+| GET | `/api/admin/bookings` | 所有訂單（分頁） |
+| GET | `/api/admin/users` | 會員列表（分頁） |
+| POST | `/api/admin/tickets/:id/refund` | 代客退票 |
 
 ## 資料表
 
 ```
-users          帳號、bcrypt hash、餘額
-movies         電影
-theaters       影廳（排數 × 每排座位數）
-showtimes      場次    UNIQUE(theater_id, date, time)  同廳同時段不能排兩場
-bookings       訂單
-booking_seats  訂單中的每個座位  UNIQUE(showtime_id, seat_row, seat_col)  ← 防超賣
-seat_locks     選位暫時保留      PRIMARY KEY(showtime_id, seat_row, seat_col)
-transactions   儲值與購票紀錄
+users           帳號、bcrypt hash、餘額、角色（user / admin）
+movies          電影
+theaters        影廳（排數 × 每排座位數）
+showtimes       場次   UNIQUE(theater_id, date, time)  同廳同時段不能排兩場
+bookings        訂單（含已退款金額與狀態）
+booking_seats   訂單中的每個座位
+                └ 部分唯一索引 (showtime_id, seat_row, seat_col) WHERE status != 'refunded'  ← 防超賣
+seat_locks      選位暫時保留     PRIMARY KEY(showtime_id, seat_row, seat_col)
+transactions    儲值、購票、退票紀錄
+payment_orders  金流訂單（pending / paid / failed / expired）
 ```
 
 每個座位是 `booking_seats` 的一列，也就是一張獨立票券，可以分開使用。
@@ -179,7 +281,8 @@ transactions   儲值與購票紀錄
 | `schedule.html` | 電影時刻表：未來 7 天 |
 | `movie-detail.html` | 電影詳情與該片所有場次 |
 | `booking.html` | 線上訂票：選片 → 日期 → 場次 → 選位 → 結帳 |
-| `profile.html` | 個人專區：餘額、票券統計、改名、消費紀錄 |
+| `profile.html` | 個人專區：餘額、票券統計、改名、消費紀錄（無限滾動） |
+| `admin.html` | 管理後台（僅 admin 可用） |
 
 訂票頁可用網址帶入場次：`booking.html?showtime=12&movie=1&date=2026-08-11&time=18:00`
 
@@ -197,6 +300,18 @@ transactions   儲值與購票紀錄
 
 所有文字與背景組合皆通過 WCAG AA（對比度 ≥ 4.5）。
 
+側邊欄由 `js/sidebar.js` 統一產生（原本六個頁面各複製一份），
+會依登入狀態與角色顯示「會員」與「管理」區塊。
+
+### 無限滾動
+
+`js/infinite-scroll.js` 是共用元件，用 `IntersectionObserver` 監看列表尾端的哨兵元素，
+目前用在場次查詢、消費紀錄與後台的三張表。處理了幾個容易忽略的細節：
+
+- 載入後哨兵若仍在畫面內，重新 `observe` 一次讓它繼續載，不會卡住
+- 每次重新查詢會遞增 generation，丟棄前一次查詢晚回來的結果
+- 載入中／已到底／載入失敗（可重試）三種狀態都有對應畫面
+
 ## 環境變數
 
 | 變數 | 預設 | 說明 |
@@ -210,10 +325,9 @@ transactions   儲值與購票紀錄
 
 這是作品展示用的專案，以下是刻意保留的簡化：
 
-- **沒有真實金流**。餘額是系統內的點數，儲值不會真的扣款。
-  真要串接的話應該接綠界／藍新／Stripe 的**測試環境**——整合方式與正式環境相同，
-  但不涉及真實交易。這是一間虛構影城、放的是不存在的電影，收真錢等於賣無法交付的商品。
+- **金流是沙盒，不是真實交易**。付款頁與回調由本專案模擬，簽章演算法與流程和綠界正式環境相同，
+  但不會向任何金融機構請款。這是一間虛構影城、放的是不存在的電影，收真錢等於賣無法交付的商品。
 - **「Google 登入」是模擬的**，固定綁在一組展示帳號上，不會真的走 OAuth。
 - **票券 QR Code 是 Canvas 畫的示意圖案**，不是可掃描的真實 QR 編碼。
-- 沒有管理後台，排片由伺服器啟動時自動產生。
-- 沒有退票功能。
+- 沒有寄送 email／簡訊通知。
+- 金流只實作信用卡一種付款方式。

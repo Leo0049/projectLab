@@ -145,14 +145,18 @@ const AuthManager = {
     },
 
     /* -------------------------------------------------------------- *
-     * 儲值
+     * 儲值（走金流）
      * -------------------------------------------------------------- */
 
-    async deposit(amount) {
+    /**
+     * 建立儲值訂單並把使用者送到金流商的付款頁。
+     * 成功的話這個函式不會回來——瀏覽器已經離開本站了。
+     */
+    async startDeposit(amount) {
         try {
-            const { balance } = await DataAPI.deposit(amount);
-            this.setBalance(balance);
-            return { success: true, balance };
+            const order = await DataAPI.createDepositOrder(amount);
+            DataAPI.redirectToGateway(order);
+            return { success: true };
         } catch (error) {
             return { success: false, message: error.message };
         }
@@ -288,16 +292,20 @@ const AuthManager = {
                             <label for="deposit-amount" class="form-label">儲值金額</label>
                             <div class="d-flex gap-2 mb-2 flex-wrap">
                                 <button type="button" class="btn btn-outline-primary quick-deposit" data-amount="100">$100</button>
-                                <button type="button" class="btn btn-outline-primary quick-deposit" data-amount="300">$300</button>
                                 <button type="button" class="btn btn-outline-primary quick-deposit" data-amount="500">$500</button>
                                 <button type="button" class="btn btn-outline-primary quick-deposit" data-amount="1000">$1000</button>
+                                <button type="button" class="btn btn-outline-primary quick-deposit" data-amount="2000">$2000</button>
                             </div>
-                            <input type="number" class="form-control" id="deposit-amount" placeholder="或輸入自訂金額" min="1">
+                            <input type="number" class="form-control" id="deposit-amount"
+                                placeholder="或輸入自訂金額" min="100" step="1">
+                            <p class="small text-muted mt-2 mb-0">
+                                最低 NT$ 100。按下「前往付款」會導向金流商的付款頁面。
+                            </p>
                         </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                        <button type="button" class="btn btn-primary" id="confirm-deposit-btn">確認儲值</button>
+                        <button type="button" class="btn btn-primary" id="confirm-deposit-btn">前往付款</button>
                     </div>
                 </div>
             </div>
@@ -389,16 +397,16 @@ const AuthManager = {
                 }
 
                 confirmDepositBtn.disabled = true;
-                const result = await this.deposit(amount);
-                confirmDepositBtn.disabled = false;
+                confirmDepositBtn.textContent = '前往付款…';
 
-                if (result.success) {
-                    bootstrap.Modal.getInstance(document.getElementById('depositModal'))?.hide();
-                    this.showToast(`成功儲值 NT$ ${amount}`, 'success');
-                    document.getElementById('deposit-amount').value = '';
-                } else {
-                    this.showToast(result.message || '儲值失敗', 'danger');
+                const result = await this.startDeposit(amount);
+
+                if (!result.success) {
+                    confirmDepositBtn.disabled = false;
+                    confirmDepositBtn.textContent = '前往付款';
+                    this.showToast(result.message || '無法建立付款訂單', 'danger');
                 }
+                // 成功時瀏覽器會被導到金流商的付款頁，不需要再處理
             });
         }
 

@@ -335,9 +335,7 @@ h1, h2, h3, h4, h5, h6 {
     color: var(--ft-gold) !important;
 }
 
-#sidebar.bg-dark {
-    background-color: var(--ft-surface) !important;
-}
+/* --- 側邊欄（由 js/sidebar.js 產生） --- */
 
 #sidebar {
     position: fixed;
@@ -346,28 +344,143 @@ h1, h2, h3, h4, h5, h6 {
     bottom: 0;
     z-index: 100;
     padding: 56px 0 0;
+    background: linear-gradient(180deg, var(--ft-surface) 0%, #12151c 100%);
     border-right: 1px solid var(--ft-border-soft);
+    overflow-y: auto;
+    scrollbar-width: thin;
 }
 
-.sidebarstyle {
-    min-height: 52px;
-    letter-spacing: .06em;
-    color: var(--ft-text-dim) !important;
-    border-color: var(--ft-border-soft) !important;
-    border-left: 3px solid transparent;
-    transition: background-color .2s, color .2s, border-color .2s;
+.sidebar-inner {
+    display: flex;
+    flex-direction: column;
+    min-height: calc(100vh - 56px);
+    padding: 18px 14px 16px;
 }
 
-.sidebarstyle:hover {
-    background-color: var(--ft-surface-2);
-    color: var(--ft-text) !important;
+.sidebar-section + .sidebar-section {
+    margin-top: 20px;
 }
 
-.sidebarstyle.active {
-    background-color: var(--ft-surface-2);
-    border-left-color: var(--ft-gold);
-    color: var(--ft-gold) !important;
+.sidebar-section-label {
+    margin: 0 0 8px 10px;
+    font-size: .68rem;
+    font-weight: 700;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--ft-text-muted);
+}
+
+.sidebar-nav {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.sidebar-nav li + li {
+    margin-top: 2px;
+}
+
+.sidebar-link {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    color: var(--ft-text-dim);
+    text-decoration: none;
+    font-size: .93rem;
+    font-weight: 500;
+    transition: background-color .18s, color .18s, transform .18s;
+}
+
+.sidebar-link:hover {
+    background: var(--ft-surface-2);
+    color: var(--ft-text);
+    transform: translateX(2px);
+}
+
+.sidebar-link.active {
+    background: var(--ft-gold-dim);
+    color: var(--ft-gold-soft);
     font-weight: 600;
+}
+
+/* 目前頁面的左側光條 */
+.sidebar-link.active::before {
+    content: '';
+    position: absolute;
+    left: -14px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 22px;
+    border-radius: 0 3px 3px 0;
+    background: var(--ft-gold);
+    box-shadow: 0 0 10px rgba(240, 180, 41, .8);
+}
+
+.sidebar-icon {
+    width: 19px;
+    height: 19px;
+    flex: 0 0 19px;
+    opacity: .85;
+}
+
+.sidebar-link.active .sidebar-icon {
+    opacity: 1;
+}
+
+/* 底部使用者區塊 */
+.sidebar-user {
+    margin-top: auto;
+    padding: 12px;
+    background: var(--ft-surface-2);
+    border: 1px solid var(--ft-border-soft);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+}
+
+.sidebar-guest {
+    display: block;
+    text-align: center;
+}
+
+.sidebar-avatar {
+    width: 38px;
+    height: 38px;
+    flex: 0 0 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--ft-gold);
+    color: #1b1400;
+    font-weight: 800;
+    font-size: 1.05rem;
+}
+
+.sidebar-user-info {
+    min-width: 0;
+}
+
+.sidebar-username {
+    margin: 0;
+    font-size: .88rem;
+    font-weight: 600;
+    color: var(--ft-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sidebar-balance {
+    margin: 0;
+    font-size: .8rem;
+    color: var(--ft-gold);
+    font-weight: 700;
 }
 
 /* 手機版漢堡圖示 */
@@ -1427,6 +1540,223 @@ main h1.h2 {
     background-color: #2a4d86 !important;
 }
 
+/* --- 無限滾動 --- */
+
+.infinite-sentinel {
+    min-height: 8px;
+}
+
+.infinite-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .6rem;
+    padding: 1.4rem 0;
+    color: var(--ft-text-muted);
+    font-size: .88rem;
+}
+
+.infinite-end {
+    padding: 1.2rem 0;
+    text-align: center;
+    color: var(--ft-text-muted);
+    font-size: .82rem;
+}
+
+/* 結尾的細線，暗示「到底了」 */
+.infinite-end::before {
+    content: '';
+    display: block;
+    width: 46px;
+    height: 1px;
+    margin: 0 auto .7rem;
+    background: var(--ft-border);
+}
+
+.infinite-error {
+    padding: 1.2rem 0;
+    text-align: center;
+    color: #ff8b8f;
+    font-size: .86rem;
+}
+
+/* 新載入的內容淡入，避免整段突然跳出來 */
+.showtime-group,
+.admin-booking {
+    animation: fade-in-up .32s ease both;
+}
+
+@keyframes fade-in-up {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .showtime-group,
+    .admin-booking {
+        animation: none;
+    }
+}
+
+/* --- 票券退票 --- */
+
+.ticket-refund-note {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: .72rem;
+    color: var(--ft-text-muted);
+    text-align: center;
+    line-height: 1.3;
+}
+
+/* --- 管理後台 --- */
+
+.stat-card .stat-hint {
+    margin-top: .35rem;
+    font-size: .74rem;
+    color: var(--ft-text-muted);
+}
+
+.admin-top-movies {
+    display: flex;
+    flex-direction: column;
+    gap: .9rem;
+}
+
+.top-movie-row {
+    display: flex;
+    align-items: center;
+    gap: .8rem;
+}
+
+.top-movie-poster {
+    width: 34px;
+    height: 51px;
+    flex: 0 0 34px;
+    object-fit: cover;
+    border-radius: 5px;
+}
+
+.top-movie-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.top-movie-title {
+    font-size: .9rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.top-movie-value {
+    font-size: .78rem;
+    color: var(--ft-text-muted);
+    white-space: nowrap;
+}
+
+.top-movie-bar,
+.occupancy-bar {
+    height: 6px;
+    margin-top: .4rem;
+    background: var(--ft-surface-3);
+    border-radius: 99px;
+    overflow: hidden;
+}
+
+.top-movie-bar span,
+.occupancy-bar span {
+    display: block;
+    height: 100%;
+    border-radius: 99px;
+    background: var(--ft-gold);
+    transition: width .4s ease;
+}
+
+.occupancy-bar {
+    margin-top: 0;
+}
+
+.occupancy-bar.is-mid span {
+    background: #4c8ff5;
+}
+
+.occupancy-bar.is-high span {
+    background: var(--ft-green);
+}
+
+.admin-booking {
+    border: 1px solid var(--ft-border-soft);
+    border-radius: var(--ft-radius);
+    overflow: hidden;
+    margin-bottom: .9rem;
+}
+
+.admin-booking-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: .6rem;
+    padding: .6rem .9rem;
+    background: var(--ft-surface-2);
+}
+
+.admin-booking-body {
+    padding: .8rem .9rem;
+}
+
+.admin-seat-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .45rem;
+}
+
+.admin-seat {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .28rem .55rem;
+    background: var(--ft-surface-2);
+    border: 1px solid var(--ft-border);
+    border-radius: 7px;
+    font-size: .82rem;
+    font-weight: 600;
+}
+
+.admin-seat small {
+    font-weight: 400;
+    font-size: .68rem;
+    color: var(--ft-text-muted);
+}
+
+.admin-seat.is-refunded {
+    opacity: .55;
+    text-decoration: line-through;
+}
+
+.admin-refund-btn {
+    padding: 0 .35rem;
+    border: none;
+    border-radius: 5px;
+    background: rgba(229, 72, 77, .18);
+    color: #ff9ea1;
+    font-size: .68rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.admin-refund-btn:hover:not(:disabled) {
+    background: var(--ft-red);
+    color: #fff;
+}
+
+.admin-refund-btn:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
 /* 載入骨架 */
 .loading-skeleton {
     background: linear-gradient(90deg, var(--ft-surface) 25%, var(--ft-surface-2) 50%, var(--ft-surface) 75%);
@@ -1438,6 +1768,11 @@ main h1.h2 {
 .loading-card {
     width: 100%;
     aspect-ratio: 2 / 3;
+}
+
+.loading-showtime-card {
+    width: 100%;
+    height: 148px;
 }
 
 @keyframes skeleton-loading {

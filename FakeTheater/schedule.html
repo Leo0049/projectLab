@@ -25,17 +25,6 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarSupportedContent">
                 <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
-                    <!-- Mobile only links -->
-                    <li class="nav-item d-lg-none">
-                        <a class="nav-link" href="showtime.html">場次查詢</a>
-                    </li>
-                    <li class="nav-item d-lg-none">
-                        <a class="nav-link" href="schedule.html">電影時刻表</a>
-                    </li>
-                    <li class="nav-item d-lg-none">
-                        <a class="nav-link" href="booking.html">線上訂票</a>
-                    </li>
-                    <hr class="d-lg-none text-white-50">
                     <!-- 動態內容由 auth.js 生成 -->
                     <li class="nav-item">
                         <a class="nav-link btn btn-outline-light" href="#" id="nav-register-btn">註冊</a>
@@ -51,26 +40,8 @@
     <div class="container-fluid">
         <div class="row">
             <!-- Left Sidebar -->
-            <nav id="sidebar" class="col-md-3 col-lg-2 d-md-block bg-dark sidebar collapse">
-                <div class="position-sticky pt-3">
-                    <ul class="nav flex-column">
-                        <li class="nav-item">
-                            <a class="sidebarstyle nav-link border-bottom text-white my-2  
-                            d-flex justify-content-center align-items-center rounded-top fs-5"
-                                href="showtime.html">場次查詢</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="sidebarstyle nav-link border-bottom text-white my-2 
-                            d-flex justify-content-center align-items-center rounded-top fs-5"
-                                href="schedule.html">電影時刻表</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="sidebarstyle nav-link border-bottom text-white my-2 
-                            d-flex justify-content-center align-items-center rounded-top fs-5"
-                                href="booking.html">線上訂票</a>
-                        </li>
-                    </ul>
-                </div>
+            <nav id="sidebar" class="col-md-3 col-lg-2 d-md-block sidebar collapse">
+                <!-- 由 js/sidebar.js 產生 -->
             </nav>
 
             <!-- Main Content Area -->
@@ -100,6 +71,7 @@
     <script src="js/api.js"></script>
     <script src="js/common.js"></script>
     <script src="js/auth.js"></script>
+    <script src="js/sidebar.js"></script>
     <script src="js/wallet-sidebar.js"></script>
     <script src="js/footer.js"></script>
     <script src="js/schedule.js"></script>

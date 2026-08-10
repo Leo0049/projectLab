@@ -25,17 +25,6 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarSupportedContent">
                 <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
-                    <!-- Mobile only links -->
-                    <li class="nav-item d-lg-none">
-                        <a class="nav-link" href="showtime.html">場次查詢</a>
-                    </li>
-                    <li class="nav-item d-lg-none">
-                        <a class="nav-link" href="schedule.html">電影時刻表</a>
-                    </li>
-                    <li class="nav-item d-lg-none">
-                        <a class="nav-link" href="booking.html">線上訂票</a>
-                    </li>
-                    <hr class="d-lg-none text-white-50">
                     <!-- 動態內容由 auth.js 生成 -->
                     <li class="nav-item">
                         <a class="nav-link" href="#" id="nav-register-btn">註冊</a>
@@ -51,26 +40,8 @@
     <div class="container-fluid">
         <div class="row">
             <!-- Left Sidebar -->
-            <nav id="sidebar" class="col-md-3 col-lg-2 d-md-block bg-dark sidebar collapse">
-                <div class="position-sticky pt-3">
-                    <ul class="nav flex-column">
-                        <li class="nav-item">
-                            <a class="sidebarstyle nav-link border-bottom text-white my-2  
-                            d-flex justify-content-center align-items-center rounded-top fs-5"
-                                href="showtime.html">場次查詢</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="sidebarstyle nav-link border-bottom text-white my-2 
-                            d-flex justify-content-center align-items-center rounded-top fs-5"
-                                href="schedule.html">電影時刻表</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="sidebarstyle nav-link border-bottom text-white my-2 
-                            d-flex justify-content-center align-items-center rounded-top fs-5"
-                                href="booking.html">線上訂票</a>
-                        </li>
-                    </ul>
-                </div>
+            <nav id="sidebar" class="col-md-3 col-lg-2 d-md-block sidebar collapse">
+                <!-- 由 js/sidebar.js 產生 -->
             </nav>
 
             <!-- Main Content Area -->
@@ -91,19 +62,25 @@
 
                 <!-- Stats -->
                 <div class="row g-3 mb-4">
-                    <div class="col-md-4 col-6">
+                    <div class="col-md-3 col-6">
                         <div class="stat-card">
                             <div class="stat-label">可使用票券</div>
                             <div class="stat-value is-gold" id="stat-unused">0</div>
                         </div>
                     </div>
-                    <div class="col-md-4 col-6">
+                    <div class="col-md-3 col-6">
                         <div class="stat-card">
                             <div class="stat-label">已使用票券</div>
                             <div class="stat-value" id="stat-used">0</div>
                         </div>
                     </div>
-                    <div class="col-md-4 col-12">
+                    <div class="col-md-3 col-6">
+                        <div class="stat-card">
+                            <div class="stat-label">已退票</div>
+                            <div class="stat-value" id="stat-refunded">0</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-12">
                         <div class="stat-card">
                             <div class="stat-label">累計消費</div>
                             <div class="stat-value is-green">NT$ <span id="stat-spent">0</span></div>
@@ -161,6 +138,7 @@
                                 </tbody>
                             </table>
                         </div>
+                        <div id="transaction-sentinel"></div>
                         <div id="no-transactions" class="empty-state" style="display: none;">
                             <span class="empty-icon">🧾</span>
                             <p class="mb-1">暫無消費紀錄</p>
@@ -177,12 +155,15 @@
     <script src="js/api.js"></script>
     <script src="js/common.js"></script>
     <script src="js/auth.js"></script>
+    <script src="js/sidebar.js"></script>
     <script src="js/wallet-sidebar.js"></script>
+    <script src="js/infinite-scroll.js"></script>
     <script src="js/footer.js"></script>
     <script>
-        // 個人專區：資料全部來自後端 API
+        // 個人專區：票券統計、消費紀錄（無限滾動）、金流付款回來的處理
+        const TRANSACTION_PAGE_SIZE = 15;
+
         document.addEventListener('DOMContentLoaded', async function () {
-            // 等 AuthManager 向伺服器確認過登入狀態再判斷
             await AuthManager.ready;
 
             if (!AuthManager.isLoggedIn()) {
@@ -191,13 +172,14 @@
             }
 
             const user = AuthManager.getUser();
-
             document.getElementById('current_amount').textContent = user.balance;
 
             const usernameInput = document.getElementById('usernameUpdate');
             usernameInput.placeholder = user.username;
 
-            loadTransactions();
+            await handlePaymentReturn();
+
+            setupTransactionScroll();
             loadTicketStats();
 
             document.getElementById('update-profile-form').addEventListener('submit', async function (e) {
@@ -220,6 +202,37 @@
             });
         });
 
+        /**
+         * 從金流商付款完導回來時，網址會帶 order 與 result。
+         * 但真正的入帳是靠伺服器對伺服器的回調，所以這裡要向後端確認訂單狀態，
+         * 不能直接相信網址上的 result 參數。
+         */
+        async function handlePaymentReturn() {
+            const params = new URLSearchParams(window.location.search);
+            const orderNo = params.get('order');
+            if (!orderNo) return;
+
+            // 清掉網址參數，重新整理才不會又跳一次提示
+            window.history.replaceState({}, '', window.location.pathname);
+
+            try {
+                const order = await DataAPI.getPaymentOrder(orderNo);
+
+                if (order.status === 'paid') {
+                    await AuthManager.refreshUser();
+                    AuthManager.setBalance(AuthManager.getBalance());
+                    document.getElementById('current_amount').textContent = AuthManager.getBalance();
+                    AuthManager.showToast(`儲值成功，已入帳 NT$ ${order.amount}`, 'success');
+                } else if (order.status === 'failed') {
+                    AuthManager.showToast('付款失敗，訂單未完成', 'danger');
+                } else {
+                    AuthManager.showToast('付款結果處理中，請稍後重新整理', 'warning');
+                }
+            } catch (error) {
+                AuthManager.showToast('無法確認付款結果', 'danger');
+            }
+        }
+
         // 票券統計
         async function loadTicketStats() {
             try {
@@ -227,47 +240,57 @@
                 document.getElementById('stat-unused').textContent = stats.activeTickets;
                 document.getElementById('stat-used').textContent = stats.usedTickets;
                 document.getElementById('stat-spent').textContent = stats.totalSpent;
+                document.getElementById('stat-refunded').textContent = stats.refundedTickets;
             } catch (error) {
                 console.error('載入票券統計失敗:', error);
             }
         }
 
-        // 消費紀錄
-        async function loadTransactions() {
+        // 消費紀錄：捲到底自動載入更多
+        function setupTransactionScroll() {
             const tbody = document.getElementById('transaction-list');
             const noTransactions = document.getElementById('no-transactions');
+            let rowIndex = 0;
 
-            let transactions = [];
-            try {
-                transactions = await DataAPI.getTransactions();
-            } catch (error) {
-                console.error('載入消費紀錄失敗:', error);
-            }
+            new InfiniteScroll({
+                container: document.getElementById('transaction-sentinel'),
+                pageSize: TRANSACTION_PAGE_SIZE,
+                loadPage: async (offset, limit) => {
+                    const page = await DataAPI.getTransactionPage({ limit, offset });
+                    return { items: page.transactions, total: page.total, hasMore: page.hasMore };
+                },
+                render: (transactions, { isFirstPage }) => {
+                    if (isFirstPage) {
+                        tbody.innerHTML = '';
+                        rowIndex = 0;
+                        noTransactions.style.display = 'none';
+                    }
+                    tbody.insertAdjacentHTML('beforeend',
+                        transactions.map(t => renderTransactionRow(t, ++rowIndex)).join(''));
+                },
+                onEmpty: () => {
+                    tbody.innerHTML = '';
+                    noTransactions.style.display = 'block';
+                }
+            }).reset();
+        }
 
-            if (transactions.length === 0) {
-                tbody.innerHTML = '';
-                noTransactions.style.display = 'block';
-                return;
-            }
+        function renderTransactionRow(t, index) {
+            const isIncome = t.amount > 0;
+            const badgeClass = t.type === '退票' ? 'bg-info' : (isIncome ? 'bg-success' : 'bg-warning');
 
-            noTransactions.style.display = 'none';
-
-            tbody.innerHTML = transactions.map((t, index) => `
+            return `
                 <tr>
-                    <td>${index + 1}</td>
-                    <td>
-                        <span class="badge ${t.amount > 0 ? 'bg-success' : 'bg-warning'}">
-                            ${escapeHtml(t.type)}
-                        </span>
-                    </td>
+                    <td>${index}</td>
+                    <td><span class="badge ${badgeClass}">${escapeHtml(t.type)}</span></td>
                     <td class="small">${escapeHtml(t.movieTitle) || '-'}</td>
                     <td class="small">${t.movieDate ? escapeHtml(`${t.movieDate} ${t.showtime || ''}`) : '-'}</td>
-                    <td class="${t.amount > 0 ? 'text-success' : 'text-danger'} fw-bold">
-                        ${t.amount > 0 ? '+' : ''}$${t.amount}
+                    <td class="${isIncome ? 'text-success' : 'text-danger'} fw-bold">
+                        ${isIncome ? '+' : ''}$${t.amount}
                     </td>
                     <td class="text-muted small">${escapeHtml(t.createdAt)}</td>
                 </tr>
-            `).join('');
+            `;
         }
     </script>
 </body>

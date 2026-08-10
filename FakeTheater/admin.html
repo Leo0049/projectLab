@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-bs-theme="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理後台 - FakeTheater</title>
+    <link rel="icon" href="pic/favicon.svg" type="image/svg+xml">
+    <link href="css/bootstrap.min.css" rel="stylesheet">
+    <link href="css/custom.css" rel="stylesheet">
+</head>
+
+<body>
+
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="index.html">FakeTheater</a>
+            <span class="badge bg-warning text-dark ms-2">管理後台</span>
+            <button class="navbar-toggler collapsed ms-auto" type="button" data-bs-toggle="collapse"
+                data-bs-target="#navbarSupportedContent" aria-label="Toggle navigation">
+                <span class="line"></span>
+                <span class="line"></span>
+                <span class="line"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarSupportedContent">
+                <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="nav-login-btn">登入</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="row">
+            <nav id="sidebar" class="col-md-3 col-lg-2 d-md-block sidebar collapse">
+                <!-- 由 js/sidebar.js 產生 -->
+            </nav>
+
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+                <div
+                    class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2">管理後台</h1>
+                    <span class="text-muted small" id="admin-updated-at"></span>
+                </div>
+
+                <!-- 未授權時顯示 -->
+                <div id="admin-denied" class="empty-state" style="display: none;">
+                    <span class="empty-icon">🔒</span>
+                    <p class="mb-1">需要管理員權限</p>
+                    <p class="small mb-3">請以管理員帳號登入後再試。</p>
+                    <a href="index.html" class="btn btn-primary btn-sm">返回首頁</a>
+                </div>
+
+                <div id="admin-content" style="display: none;">
+                    <!-- 營運概況 -->
+                    <div class="row g-3 mb-4" id="admin-stats"></div>
+
+                    <!-- 熱門電影 -->
+                    <div class="card mb-4">
+                        <div class="card-header">熱門電影</div>
+                        <div class="card-body">
+                            <div id="admin-top-movies" class="admin-top-movies"></div>
+                        </div>
+                    </div>
+
+                    <!-- 分頁 -->
+                    <ul class="nav nav-pills category-tabs mb-3" id="adminTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" data-bs-toggle="pill" data-bs-target="#panel-showtimes"
+                                type="button" role="tab">場次管理</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" data-bs-toggle="pill" data-bs-target="#panel-bookings"
+                                type="button" role="tab">訂單管理</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" data-bs-toggle="pill" data-bs-target="#panel-users"
+                                type="button" role="tab">會員</button>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content">
+                        <!-- 場次管理 -->
+                        <div class="tab-pane fade show active" id="panel-showtimes" role="tabpanel">
+                            <div class="card mb-4">
+                                <div class="card-header">新增場次</div>
+                                <div class="card-body">
+                                    <form id="create-showtime-form" class="row g-3 align-items-end">
+                                        <div class="col-md-3 col-6">
+                                            <label for="new-movie" class="form-label">電影</label>
+                                            <select id="new-movie" class="form-select" required></select>
+                                        </div>
+                                        <div class="col-md-2 col-6">
+                                            <label for="new-theater" class="form-label">影廳</label>
+                                            <select id="new-theater" class="form-select" required></select>
+                                        </div>
+                                        <div class="col-md-2 col-6">
+                                            <label for="new-date" class="form-label">日期</label>
+                                            <input type="date" id="new-date" class="form-control" required>
+                                        </div>
+                                        <div class="col-md-2 col-6">
+                                            <label for="new-time" class="form-label">時間</label>
+                                            <input type="time" id="new-time" class="form-control" value="18:00" required>
+                                        </div>
+                                        <div class="col-md-2 col-6">
+                                            <label for="new-price" class="form-label">票價</label>
+                                            <input type="number" id="new-price" class="form-control" value="300"
+                                                min="1" step="1" required>
+                                        </div>
+                                        <div class="col-md-1 col-6">
+                                            <button type="submit" class="btn btn-primary w-100">排片</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+
+                            <div class="card">
+                                <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                    <span>場次列表</span>
+                                    <input type="date" id="filter-date" class="form-control form-control-sm"
+                                        style="max-width: 190px;">
+                                </div>
+                                <div class="card-body">
+                                    <div class="table-responsive">
+                                        <table class="table table-hover align-middle mb-0">
+                                            <thead class="table-dark">
+                                                <tr>
+                                                    <th>日期</th>
+                                                    <th>時間</th>
+                                                    <th>電影</th>
+                                                    <th>影廳</th>
+                                                    <th>票價</th>
+                                                    <th>售出 / 座位</th>
+                                                    <th>上座率</th>
+                                                    <th></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="admin-showtime-list"></tbody>
+                                        </table>
+                                    </div>
+                                    <div id="showtime-admin-sentinel"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 訂單管理 -->
+                        <div class="tab-pane fade" id="panel-bookings" role="tabpanel">
+                            <div class="card">
+                                <div class="card-header">所有訂單</div>
+                                <div class="card-body">
+                                    <div id="admin-booking-list"></div>
+                                    <div id="booking-admin-sentinel"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 會員 -->
+                        <div class="tab-pane fade" id="panel-users" role="tabpanel">
+                            <div class="card">
+                                <div class="card-header">會員列表</div>
+                                <div class="card-body">
+                                    <div class="table-responsive">
+                                        <table class="table table-hover align-middle mb-0">
+                                            <thead class="table-dark">
+                                                <tr>
+                                                    <th>#</th>
+                                                    <th>帳號</th>
+                                                    <th>電子郵件</th>
+                                                    <th>角色</th>
+                                                    <th>餘額</th>
+                                                    <th>訂單</th>
+                                                    <th>持票</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="admin-user-list"></tbody>
+                                        </table>
+                                    </div>
+                                    <div id="user-admin-sentinel"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="js/bootstrap.bundle.min.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/common.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/sidebar.js"></script>
+    <script src="js/wallet-sidebar.js"></script>
+    <script src="js/infinite-scroll.js"></script>
+    <script src="js/footer.js"></script>
+    <script src="js/admin.js"></script>
+</body>
+
+</html>

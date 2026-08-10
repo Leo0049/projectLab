@@ -36,9 +36,10 @@ const createBooking = writeTransaction((showtimeId, userId, seats) => {
         throw badRequest('這個場次已經開演，無法訂票');
     }
 
-    const soldStmt = db.prepare(
-        'SELECT 1 FROM booking_seats WHERE showtime_id = ? AND seat_row = ? AND seat_col = ?'
-    );
+    const soldStmt = db.prepare(`
+        SELECT 1 FROM booking_seats
+        WHERE showtime_id = ? AND seat_row = ? AND seat_col = ? AND status != 'refunded'
+    `);
     const lockStmt = db.prepare(
         'SELECT user_id AS userId FROM seat_locks WHERE showtime_id = ? AND seat_row = ? AND seat_col = ?'
     );
@@ -139,30 +140,64 @@ function archiveExpiredTickets(userId) {
 }
 
 /**
- * 取得使用者的票券，每個座位是一張獨立票券
- * @param {number} userId
- * @returns {{active:Array, history:Array}}
+ * 場次的開演時間（本地時區）
  */
-function listTickets(userId) {
-    archiveExpiredTickets(userId);
+function showtimeStartTime(date, time) {
+    return new Date(`${date}T${time}:00`);
+}
 
-    const rows = getDb().prepare(`
-        SELECT bs.id, bs.booking_id AS bookingId, bs.seat_row AS row, bs.seat_col AS col,
-               bs.status, bs.used_at AS usedAt,
-               b.showtime_id AS showtimeId, b.created_at AS createdAt,
-               s.date, s.time, s.price,
-               m.id AS movieId, m.title AS movieTitle, m.poster_image AS moviePoster,
-               t.name AS theaterName
-        FROM booking_seats bs
-        JOIN bookings b  ON b.id = bs.booking_id
-        JOIN showtimes s ON s.id = b.showtime_id
-        JOIN movies m    ON m.id = s.movie_id
-        JOIN theaters t  ON t.id = s.theater_id
-        WHERE b.user_id = ?
-        ORDER BY s.date, s.time, bs.seat_row, bs.seat_col
-    `).all(userId);
+/**
+ * 判斷一張票能不能退，以及可以退多少錢。
+ *
+ * 規則：
+ *   - 只有「未使用」的票可以退
+ *   - 距離開演不足 REFUND_CUTOFF_MINUTES 分鐘就不受理
+ *   - 退款金額為票價扣除 REFUND_FEE_RATE 的手續費
+ */
+function evaluateRefund(ticketRow) {
+    const price = ticketRow.price;
+    const fee = Math.round(price * config.REFUND_FEE_RATE);
+    const refundAmount = price - fee;
 
-    const toTicket = row => ({
+    if (ticketRow.status === 'refunded') {
+        return { refundable: false, reason: '已退票', refundAmount: 0, fee };
+    }
+    if (ticketRow.status !== 'unused') {
+        return { refundable: false, reason: '票券已使用，無法退票', refundAmount: 0, fee };
+    }
+
+    const cutoff = showtimeStartTime(ticketRow.date, ticketRow.time).getTime()
+        - config.REFUND_CUTOFF_MINUTES * 60 * 1000;
+
+    if (Date.now() >= cutoff) {
+        return {
+            refundable: false,
+            reason: `開演前 ${config.REFUND_CUTOFF_MINUTES} 分鐘起不受理退票`,
+            refundAmount: 0,
+            fee
+        };
+    }
+
+    return { refundable: true, reason: '', refundAmount, fee };
+}
+
+const TICKET_QUERY = `
+    SELECT bs.id, bs.booking_id AS bookingId, bs.seat_row AS row, bs.seat_col AS col,
+           bs.status, bs.used_at AS usedAt, bs.refunded_at AS refundedAt,
+           b.showtime_id AS showtimeId, b.user_id AS userId, b.created_at AS createdAt,
+           s.date, s.time, s.price,
+           m.id AS movieId, m.title AS movieTitle, m.poster_image AS moviePoster,
+           t.name AS theaterName
+    FROM booking_seats bs
+    JOIN bookings b  ON b.id = bs.booking_id
+    JOIN showtimes s ON s.id = b.showtime_id
+    JOIN movies m    ON m.id = s.movie_id
+    JOIN theaters t  ON t.id = s.theater_id
+`;
+
+function toTicket(row) {
+    const refund = evaluateRefund(row);
+    return {
         id: row.id,
         bookingId: row.bookingId,
         showtimeId: row.showtimeId,
@@ -172,17 +207,97 @@ function listTickets(userId) {
         date: row.date,
         time: row.time,
         theaterName: row.theaterName,
+        price: row.price,
         seat: { row: row.row, col: row.col },
         seatLabel: seatService.formatSeat({ row: row.row, col: row.col }),
         status: row.status,
-        usedAt: row.usedAt
-    });
-
-    return {
-        active: rows.filter(r => r.status !== 'used').map(toTicket),
-        history: rows.filter(r => r.status === 'used').map(toTicket)
+        usedAt: row.usedAt,
+        refundedAt: row.refundedAt,
+        refundable: refund.refundable,
+        refundReason: refund.reason,
+        refundAmount: refund.refundAmount,
+        refundFee: refund.fee
     };
 }
+
+/**
+ * 取得使用者的票券，每個座位是一張獨立票券
+ * @param {number} userId
+ * @returns {{active:Array, history:Array}}
+ */
+function listTickets(userId) {
+    archiveExpiredTickets(userId);
+
+    const rows = getDb().prepare(`
+        ${TICKET_QUERY}
+        WHERE b.user_id = ?
+        ORDER BY s.date, s.time, bs.seat_row, bs.seat_col
+    `).all(userId);
+
+    return {
+        active: rows.filter(r => r.status === 'unused' || r.status === 'using').map(toTicket),
+        history: rows.filter(r => r.status === 'used' || r.status === 'refunded').map(toTicket)
+    };
+}
+
+/**
+ * 退票
+ *
+ * 在單一交易內完成：標記票券 → 退款入帳 → 更新訂單狀態 → 記錄交易。
+ * 座位的 status 變成 refunded 之後就被排除在部分唯一索引外，位子隨即可以重新賣出，
+ * 但這一列資料仍然保留，對帳查得到。
+ *
+ * @param {number} ticketId
+ * @param {number|null} userId - 一般使用者只能退自己的票；管理員傳 null
+ * @returns {{refundAmount:number, fee:number, balance:number|null, seatLabel:string}}
+ */
+const refundTicket = writeTransaction((ticketId, userId) => {
+    const db = getDb();
+
+    const row = db.prepare(`${TICKET_QUERY} WHERE bs.id = ?`).get(ticketId);
+    if (!row) throw notFound('找不到這張票券');
+
+    // userId 為 null 代表管理員代客退票，跳過擁有者檢查
+    if (userId !== null && row.userId !== userId) {
+        throw notFound('找不到這張票券');
+    }
+
+    const refund = evaluateRefund(row);
+    if (!refund.refundable) {
+        throw badRequest(refund.reason || '這張票券無法退票');
+    }
+
+    db.prepare('UPDATE booking_seats SET status = \'refunded\', refunded_at = ? WHERE id = ?')
+        .run(Date.now(), ticketId);
+
+    db.prepare('UPDATE users SET balance = balance + ? WHERE id = ?')
+        .run(refund.refundAmount, row.userId);
+
+    db.prepare('UPDATE bookings SET refunded_amount = refunded_amount + ? WHERE id = ?')
+        .run(refund.refundAmount, row.bookingId);
+
+    // 整筆訂單的座位都退光了就標記為 Refunded，否則是部分退票
+    const remaining = db.prepare(`
+        SELECT COUNT(*) AS n FROM booking_seats WHERE booking_id = ? AND status != 'refunded'
+    `).get(row.bookingId).n;
+
+    db.prepare('UPDATE bookings SET status = ? WHERE id = ?')
+        .run(remaining === 0 ? 'Refunded' : 'PartiallyRefunded', row.bookingId);
+
+    db.prepare(`
+        INSERT INTO transactions (user_id, type, amount, movie_title, movie_date, showtime, booking_id)
+        VALUES (?, '退票', ?, ?, ?, ?, ?)
+    `).run(row.userId, refund.refundAmount, row.movieTitle, row.date, row.time, row.bookingId);
+
+    const balance = db.prepare('SELECT balance FROM users WHERE id = ?').get(row.userId).balance;
+
+    return {
+        refundAmount: refund.refundAmount,
+        fee: refund.fee,
+        balance,
+        seatLabel: seatService.formatSeat({ row: row.row, col: row.col })
+    };
+});
 
 /**
  * 開始使用一張票券（進場）
@@ -217,21 +332,29 @@ function getTicketStats(userId) {
     const counts = db.prepare(`
         SELECT
             SUM(CASE WHEN bs.status IN ('unused', 'using') THEN 1 ELSE 0 END) AS active,
-            SUM(CASE WHEN bs.status = 'used' THEN 1 ELSE 0 END) AS used
+            SUM(CASE WHEN bs.status = 'used' THEN 1 ELSE 0 END) AS used,
+            SUM(CASE WHEN bs.status = 'refunded' THEN 1 ELSE 0 END) AS refunded
         FROM booking_seats bs
         JOIN bookings b ON b.id = bs.booking_id
         WHERE b.user_id = ?
     `).get(userId);
 
-    const spent = db.prepare(
-        'SELECT COALESCE(SUM(-amount), 0) AS spent FROM transactions WHERE user_id = ? AND amount < 0'
-    ).get(userId);
+    // 累計消費 = 支出總額 - 退票退回的金額
+    const spent = db.prepare(`
+        SELECT COALESCE(SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END), 0)
+             - COALESCE(SUM(CASE WHEN type = '退票' THEN amount ELSE 0 END), 0) AS spent
+        FROM transactions WHERE user_id = ?
+    `).get(userId);
 
     return {
         activeTickets: counts.active || 0,
         usedTickets: counts.used || 0,
+        refundedTickets: counts.refunded || 0,
         totalSpent: spent.spent || 0
     };
 }
 
-module.exports = { createBooking, listTickets, useTicket, getTicketStats };
+module.exports = {
+    createBooking, listTickets, useTicket, getTicketStats,
+    refundTicket, evaluateRefund, archiveExpiredTickets
+};

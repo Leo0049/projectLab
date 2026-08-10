@@ -66,6 +66,34 @@ function runWorker(args) {
     });
 }
 
+
+const { createCheckMacValue: signParams } = require('../server/payments/signature');
+const payCfg = require('../server/config');
+
+/**
+ * 測試用：透過金流流程幫帳號加值（建立訂單 → 送出已簽章的回調）
+ */
+async function fundAccount(token, amount) {
+    const order = await api('POST', '/api/payments/deposit', { token, body: { amount } });
+    const orderNo = order.data.formData.MerchantTradeNo;
+
+    const params = {
+        MerchantID: payCfg.PAYMENT_MERCHANT_ID,
+        MerchantTradeNo: orderNo,
+        TradeNo: `SB${Date.now()}`,
+        TradeAmt: String(amount),
+        RtnCode: '1',
+        RtnMsg: '交易成功'
+    };
+    params.CheckMacValue = signParams(params, payCfg.PAYMENT_HASH_KEY, payCfg.PAYMENT_HASH_IV);
+
+    await fetch(`${BASE}/api/payments/webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(params).toString()
+    });
+}
+
 /* ------------------------------------------------------------------ */
 
 async function main() {
@@ -214,19 +242,20 @@ async function main() {
     /* ---------------- 錢包 ---------------- */
     console.log('\n# 錢包');
 
-    const badDeposit = await api('POST', '/api/wallet/deposit', { token, body: { amount: -500 } });
-    check('負數儲值被擋下 (400)', badDeposit.status === 400, `status=${badDeposit.status}`);
+    const legacyDeposit = await api('POST', '/api/wallet/deposit', { token, body: { amount: 500 } });
+    check('已移除可直接加值的端點 (404)', legacyDeposit.status === 404, `status=${legacyDeposit.status}`);
 
-    const hugeDeposit = await api('POST', '/api/wallet/deposit', { token, body: { amount: 999999999 } });
+    const hugeDeposit = await api('POST', '/api/payments/deposit', { token, body: { amount: 999999999 } });
     check('超額儲值被擋下 (400)', hugeDeposit.status === 400, `status=${hugeDeposit.status}`);
 
-    const depositRes = await api('POST', '/api/wallet/deposit', { token, body: { amount: 500 } });
-    check('儲值成功且餘額正確', depositRes.data.balance === 2000 - price * 2 + 500);
+    const negativeDeposit = await api('POST', '/api/payments/deposit', { token, body: { amount: -500 } });
+    check('負數儲值被擋下 (400)', negativeDeposit.status === 400, `status=${negativeDeposit.status}`);
 
     const txns = await api('GET', '/api/wallet/transactions', { token });
-    check('交易紀錄含購票與儲值', txns.data.transactions.length === 2);
+    check('交易紀錄含購票', txns.data.transactions.some(t => t.type === '購票'));
     check('購票紀錄帶有電影資訊',
         txns.data.transactions.some(t => t.type === '購票' && t.movieTitle));
+    check('交易紀錄有分頁資訊', typeof txns.data.total === 'number');
 
     /* ---------------- 票券 ---------------- */
     console.log('\n# 票券');
@@ -259,7 +288,7 @@ async function main() {
         const reg = await api('POST', '/api/auth/register', {
             body: { username, password: 'pass1234' }
         });
-        await api('POST', '/api/wallet/deposit', { token: reg.data.token, body: { amount: 5000 } });
+        await fundAccount(reg.data.token, 5000);
         racers.push(reg.data.token);
     }
 
@@ -301,6 +330,223 @@ async function main() {
         .prepare('SELECT COUNT(*) AS n FROM booking_seats WHERE showtime_id = ? AND seat_row = 8 AND seat_col = 8')
         .get(showtimeId).n;
     check('資料庫中該座位仍只有一筆', soldCount2 === 1, `count=${soldCount2}`);
+
+
+    /* ---------------- 金流沙盒 ---------------- */
+    console.log('\n# 金流：儲值訂單與回調');
+
+    const tooSmall = await api('POST', '/api/payments/deposit', { token, body: { amount: 10 } });
+    check('低於最低金額被擋下 (400)', tooSmall.status === 400, `status=${tooSmall.status}`);
+
+    const order = await api('POST', '/api/payments/deposit', { token, body: { amount: 500 } });
+    check('建立儲值訂單 (201)', order.status === 201, `status=${order.status}`);
+    check('回傳金流商表單參數', !!order.data.formData?.MerchantTradeNo);
+    check('表單帶有 CheckMacValue', /^[0-9A-F]{64}$/.test(order.data.formData?.CheckMacValue || ''));
+
+    const orderNo = order.data.formData.MerchantTradeNo;
+    const balanceBeforePay = (await api('GET', '/api/auth/me', { token })).data.user.balance;
+
+    // 未付款前不應入帳
+    const pendingStatus = await api('GET', `/api/payments/orders/${orderNo}`, { token });
+    check('訂單初始狀態為 pending', pendingStatus.data.status === 'pending', pendingStatus.data.status);
+
+    // 偽造回調：簽章錯誤
+    const forged = await fetch(`${BASE}/api/payments/webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            MerchantTradeNo: orderNo, TradeAmt: '500', RtnCode: '1',
+            CheckMacValue: 'DEADBEEF'.repeat(8)
+        }).toString()
+    });
+    check('簽章錯誤的回調被拒絕 (400)', forged.status === 400, `status=${forged.status}`);
+
+    const afterForged = (await api('GET', '/api/auth/me', { token })).data.user.balance;
+    check('偽造回調沒有入帳', afterForged === balanceBeforePay);
+
+    // 金額竄改：簽章正確但金額與訂單不符
+    const tamperedParams = {
+        MerchantID: payCfg.PAYMENT_MERCHANT_ID,
+        MerchantTradeNo: orderNo,
+        TradeNo: 'SBTAMPER',
+        TradeAmt: '99999',
+        RtnCode: '1',
+        RtnMsg: '交易成功'
+    };
+    tamperedParams.CheckMacValue = signParams(
+        tamperedParams, payCfg.PAYMENT_HASH_KEY, payCfg.PAYMENT_HASH_IV
+    );
+    const tampered = await fetch(`${BASE}/api/payments/webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(tamperedParams).toString()
+    });
+    check('金額被竄改的回調被拒絕 (409)', tampered.status === 409, `status=${tampered.status}`);
+
+    // 正常回調
+    const order2 = await api('POST', '/api/payments/deposit', { token, body: { amount: 500 } });
+    const orderNo2 = order2.data.formData.MerchantTradeNo;
+    const goodParams = {
+        MerchantID: payCfg.PAYMENT_MERCHANT_ID,
+        MerchantTradeNo: orderNo2,
+        TradeNo: 'SB123456',
+        TradeAmt: '500',
+        RtnCode: '1',
+        RtnMsg: '交易成功'
+    };
+    goodParams.CheckMacValue = signParams(
+        goodParams, payCfg.PAYMENT_HASH_KEY, payCfg.PAYMENT_HASH_IV
+    );
+
+    const sendCallback = () => fetch(`${BASE}/api/payments/webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(goodParams).toString()
+    }).then(r => r.text());
+
+    const callbackBody = await sendCallback();
+    check('回調回應 1|OK', callbackBody === '1|OK', callbackBody);
+
+    const afterPay = (await api('GET', '/api/auth/me', { token })).data.user.balance;
+    check('付款成功後餘額增加 500', afterPay === balanceBeforePay + 500,
+        `${balanceBeforePay} → ${afterPay}`);
+
+    // 冪等：金流商重送通知
+    await sendCallback();
+    await sendCallback();
+    const afterRepeat = (await api('GET', '/api/auth/me', { token })).data.user.balance;
+    check('重複回調不會重複入帳', afterRepeat === afterPay, `balance=${afterRepeat}`);
+
+    const paidStatus = await api('GET', `/api/payments/orders/${orderNo2}`, { token });
+    check('訂單狀態變為 paid', paidStatus.data.status === 'paid');
+
+    const otherOrder = await api('GET', `/api/payments/orders/${orderNo2}`, { token: alice });
+    check('不能查詢別人的金流訂單 (404)', otherOrder.status === 404, `status=${otherOrder.status}`);
+
+    /* ---------------- 退票 ---------------- */
+    console.log('\n# 退票');
+
+    const ticketsBeforeRefund = await api('GET', '/api/tickets', { token });
+    const refundable = ticketsBeforeRefund.data.active.find(t => t.status === 'unused');
+    check('未使用的票標記為可退', !!refundable && refundable.refundable === true);
+    check('退款金額為票價扣手續費',
+        refundable && refundable.refundAmount === refundable.price - Math.round(refundable.price * 0.1),
+        refundable ? `price=${refundable.price} refund=${refundable.refundAmount}` : '');
+
+    const usingTicket = ticketsBeforeRefund.data.active.find(t => t.status === 'using');
+    check('使用中的票不可退', usingTicket ? usingTicket.refundable === false : true);
+
+    const balanceBeforeRefund = (await api('GET', '/api/auth/me', { token })).data.user.balance;
+    const seatToFree = refundable.seat;
+
+    const otherRefund = await api('POST', `/api/tickets/${refundable.id}/refund`, { token: alice });
+    check('不能退別人的票 (404)', otherRefund.status === 404, `status=${otherRefund.status}`);
+
+    const refundRes = await api('POST', `/api/tickets/${refundable.id}/refund`, { token });
+    check('退票成功', refundRes.status === 200, `status=${refundRes.status}`);
+    check('退款金額正確', refundRes.data.refundAmount === refundable.refundAmount);
+
+    const balanceAfterRefund = (await api('GET', '/api/auth/me', { token })).data.user.balance;
+    check('退款已入帳',
+        balanceAfterRefund === balanceBeforeRefund + refundable.refundAmount,
+        `${balanceBeforeRefund} → ${balanceAfterRefund}`);
+
+    const seatMapAfterRefund = await api('GET', `/api/showtimes/${showtimeId}/seats`);
+    const stillSold = seatMapAfterRefund.data.occupied.some(
+        s => s.row === seatToFree.row && s.col === seatToFree.col
+    );
+    check('退票後座位重新開放', !stillSold);
+
+    const historyAfterRefund = await api('GET', '/api/tickets', { token });
+    check('退票的票券進入歷史紀錄',
+        historyAfterRefund.data.history.some(t => t.id === refundable.id && t.status === 'refunded'));
+
+    const rebook = await api('POST', '/api/bookings', {
+        token, body: { showtimeId, seats: [seatToFree] }
+    });
+    check('退掉的位子可以重新賣出 (201)', rebook.status === 201, `status=${rebook.status}`);
+
+    const doubleRefund = await api('POST', `/api/tickets/${refundable.id}/refund`, { token });
+    check('重複退票被擋下 (400)', doubleRefund.status === 400, `status=${doubleRefund.status}`);
+
+    const refundedRowCount = getDb().prepare(
+        'SELECT COUNT(*) AS n FROM booking_seats WHERE showtime_id = ? AND seat_row = ? AND seat_col = ?'
+    ).get(showtimeId, seatToFree.row, seatToFree.col).n;
+    check('同一座位同時存在退票與新售出紀錄', refundedRowCount === 2, `count=${refundedRowCount}`);
+
+    /* ---------------- 管理後台 ---------------- */
+    console.log('\n# 管理後台');
+
+    const userStats = await api('GET', '/api/admin/stats', { token });
+    check('一般使用者不能進後台 (403)', userStats.status === 403, `status=${userStats.status}`);
+
+    const adminLogin = await api('POST', '/api/auth/login', {
+        body: { username: 'admin', password: 'admin123' }
+    });
+    check('管理員可登入', adminLogin.status === 200);
+    const adminToken = adminLogin.data.token;
+
+    const dashboard = await api('GET', '/api/admin/stats', { token: adminToken });
+    check('取得營運儀表板', dashboard.status === 200 && !!dashboard.data.revenue);
+    check('票房淨額 = 總額 - 退款',
+        dashboard.data.revenue.net === dashboard.data.revenue.gross - dashboard.data.revenue.refunded);
+    check('統計有退票張數', dashboard.data.tickets.refunded >= 1,
+        `refunded=${dashboard.data.tickets.refunded}`);
+    check('有熱門電影排行',
+        Array.isArray(dashboard.data.topMovies) && dashboard.data.topMovies.length > 0);
+
+    const adminShowtimes = await api('GET', '/api/admin/showtimes?limit=5', { token: adminToken });
+    check('場次列表含售出率',
+        adminShowtimes.data.showtimes.length === 5 &&
+        adminShowtimes.data.showtimes[0].occupancy !== undefined);
+    check('場次列表有分頁資訊', adminShowtimes.data.hasMore === true);
+
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + 3);
+    const futureDateStr = `${futureDate.getFullYear()}-${String(futureDate.getMonth() + 1).padStart(2, '0')}-${String(futureDate.getDate()).padStart(2, '0')}`;
+
+    const created = await api('POST', '/api/admin/showtimes', {
+        token: adminToken,
+        body: { movieId: 1, theaterId: 1, date: futureDateStr, time: '08:00', price: 260 }
+    });
+    check('排片成功 (201)', created.status === 201, `status=${created.status}`);
+
+    const clash = await api('POST', '/api/admin/showtimes', {
+        token: adminToken,
+        body: { movieId: 2, theaterId: 1, date: futureDateStr, time: '08:00', price: 260 }
+    });
+    check('同廳同時段撞片被擋下 (409)', clash.status === 409, `status=${clash.status}`);
+
+    const pastSchedule = await api('POST', '/api/admin/showtimes', {
+        token: adminToken,
+        body: { movieId: 1, theaterId: 2, date: '2020-01-01', time: '10:00', price: 260 }
+    });
+    check('不能排在過去的日期 (400)', pastSchedule.status === 400, `status=${pastSchedule.status}`);
+
+    const removed = await api('DELETE', `/api/admin/showtimes/${created.data.id}`, { token: adminToken });
+    check('可刪除無人訂票的場次', removed.status === 200);
+
+    const removeSold = await api('DELETE', `/api/admin/showtimes/${showtimeId}`, { token: adminToken });
+    check('已售票的場次不可刪除 (409)', removeSold.status === 409, `status=${removeSold.status}`);
+
+    const adminBookings = await api('GET', '/api/admin/bookings?limit=5', { token: adminToken });
+    check('訂單列表含座位明細',
+        adminBookings.data.bookings.length > 0 && Array.isArray(adminBookings.data.bookings[0].seats));
+
+    const adminUsers = await api('GET', '/api/admin/users?limit=5', { token: adminToken });
+    check('會員列表不外洩密碼',
+        adminUsers.data.users.length > 0 && adminUsers.data.users[0].password_hash === undefined);
+
+    // 代客退票
+    const demoTickets = await api('GET', '/api/tickets', { token });
+    const adminRefundTarget = demoTickets.data.active.find(t => t.refundable);
+    if (adminRefundTarget) {
+        const adminRefund = await api('POST', `/api/admin/tickets/${adminRefundTarget.id}/refund`,
+            { token: adminToken });
+        check('管理員可代客退票', adminRefund.status === 200, `status=${adminRefund.status}`);
+    } else {
+        check('管理員可代客退票', false, '找不到可退的票券');
+    }
 
     /* ---------------- 收尾 ---------------- */
     server.close();

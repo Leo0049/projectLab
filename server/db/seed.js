@@ -70,18 +70,23 @@ const seedCatalog = writeTransaction(() => {
 const seedDemoUsers = writeTransaction(() => {
     const db = getDb();
     const insert = db.prepare(`
-        INSERT OR IGNORE INTO users (id, username, email, password_hash, balance)
-        VALUES (@id, @username, @email, @passwordHash, @balance)
+        INSERT OR IGNORE INTO users (id, username, email, password_hash, balance, role)
+        VALUES (@id, @username, @email, @passwordHash, @balance, @role)
     `);
+    // 角色可能是後來才加的，既有帳號要補上
+    const syncRole = db.prepare('UPDATE users SET role = ? WHERE id = ? AND role != ?');
 
     readJson('users.json').forEach(user => {
+        const role = user.role === 'admin' ? 'admin' : 'user';
         insert.run({
             id: user.id,
             username: user.username,
             email: user.email || `${user.username}@faketheater.com`,
             passwordHash: bcrypt.hashSync(user.password, 10),
-            balance: Math.round(user.balance || 0)
+            balance: Math.round(user.balance || 0),
+            role: role
         });
+        syncRole.run(role, user.id, role);
     });
 });
 

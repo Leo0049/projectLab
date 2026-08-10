@@ -112,6 +112,25 @@ async function balanceOf(page) {
     return parseInt(await page.locator('.nav-link .user-balance').first().textContent());
 }
 
+/**
+ * 走完整條金流：開儲值視窗 → 前往沙盒付款頁 → 付款 → 導回本站
+ * @param {boolean} succeed - false 代表模擬付款失敗
+ */
+async function depositViaGateway(page, amount, succeed = true) {
+    await page.click('#nav-deposit-btn');
+    await page.waitForSelector('#depositModal.show');
+    await page.fill('#deposit-amount', String(amount));
+    await page.click('#confirm-deposit-btn');
+
+    // 已經離開本站，來到金流商的付款頁
+    await page.waitForSelector('#sandbox-pay-success', { timeout: 10000 });
+
+    await page.click(succeed ? '#sandbox-pay-success' : '#sandbox-pay-fail');
+    await page.waitForURL(/profile\.html/, { timeout: 10000 });
+    await page.waitForSelector('#navbarDropdown', { timeout: 8000 });
+    await page.waitForTimeout(800);
+}
+
 /* ------------------------------------------------------------------ *
  * 主要流程
  * ------------------------------------------------------------------ */
@@ -306,22 +325,62 @@ async function testAccountFlow(browser, errors) {
     await page.waitForSelector('#checkoutSidebar.open', { timeout: 8000 });
     check('付款鍵被停用', await page.locator('#checkout-pay-btn').isDisabled());
     check('顯示餘額不足提示', await page.locator('#checkout-insufficient-alert').isVisible());
+    await page.click('#checkout-close-btn');
+    await page.waitForTimeout(600);
 
-    console.log('\n# 側邊欄內儲值');
-    await page.click('#checkout-deposit-btn');
-    await page.waitForSelector('#depositModal.show');
-    await page.click('.quick-deposit[data-amount="1000"]');
-    check('快選金額填入', (await page.inputValue('#deposit-amount')) === '1000');
-    await page.click('#confirm-deposit-btn');
-    await page.waitForTimeout(900);
-    check('儲值後餘額 1000', await balanceOf(page) === 1000);
+    console.log('\n# 金流：付款失敗');
+    await page.goto(`${BASE}/profile.html`);
+    await page.waitForSelector('#navbarDropdown', { timeout: 8000 });
+    await depositViaGateway(page, 500, false);
+    check('付款失敗不會入帳', await balanceOf(page) === 0, `balance=${await balanceOf(page)}`);
+    check('顯示付款失敗提示',
+        (await page.locator('.toast-body').last().textContent()).includes('失敗'));
+
+    console.log('\n# 金流：付款成功');
+    await depositViaGateway(page, 2000, true);
+    check('付款成功後餘額入帳 2000', await balanceOf(page) === 2000,
+        `balance=${await balanceOf(page)}`);
+    check('顯示儲值成功提示',
+        (await page.locator('.toast-body').last().textContent()).includes('儲值成功'));
+
+    const profileBalance = parseInt(await page.locator('#current_amount').textContent());
+    check('個人專區餘額同步更新', profileBalance === 2000, `balance=${profileBalance}`);
+
+    console.log('\n# 儲值後完成購票');
+    await page.goto(`${BASE}/booking.html`);
+    await page.waitForSelector('#navbarDropdown', { timeout: 8000 });
+    await pickShowtime(page, '3');
+    await page.locator('#seat-map .seat.available').first().click();
+    await page.click('#confirm-booking');
+    await page.waitForSelector('#checkoutSidebar.open', { timeout: 8000 });
     check('儲值後付款鍵解鎖', !(await page.locator('#checkout-pay-btn').isDisabled()));
-
     await page.click('#checkout-pay-btn');
     await page.waitForTimeout(1500);
     check('付款成功', await page.locator('#checkoutSidebar.open').count() === 0);
     check('剛買的位子已鎖定', await page.locator('#seat-map .seat.occupied').count() >= 1);
-    check('餘額已扣款', await balanceOf(page) < 1000);
+    check('餘額已扣款', await balanceOf(page) < 2000);
+
+    console.log('\n# 退票');
+    await page.click('#wallet-toggle-btn');
+    await page.waitForSelector('#walletSidebar.open');
+    await page.waitForSelector('.refund-ticket-btn', { timeout: 5000 });
+    const balanceBeforeRefund = await balanceOf(page);
+    const refundAmount = parseInt(
+        await page.locator('.refund-ticket-btn').first().getAttribute('data-refund-amount')
+    );
+    page.once('dialog', dialog => dialog.accept());
+    await page.click('.refund-ticket-btn');
+    await page.waitForTimeout(1200);
+    check('退票後餘額增加', await balanceOf(page) === balanceBeforeRefund + refundAmount,
+        `${balanceBeforeRefund} → ${await balanceOf(page)}`);
+    await page.click('#wallet-history-tab');
+    await page.waitForTimeout(500);
+    check('退票票券進入歷史',
+        (await page.locator('#history-tickets-list').textContent()).includes('已退票'));
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(400);
+    check('退票後座位重新開放',
+        await page.locator('#seat-map .seat.available').count() > 0);
 
     console.log('\n# 修改用戶名');
     await page.goto(`${BASE}/profile.html`);
@@ -348,6 +407,144 @@ async function testAccountFlow(browser, errors) {
     check('未登入無法進入個人專區', page.url().includes('index.html'), page.url());
 }
 
+
+/* ------------------------------------------------------------------ *
+ * 無限滾動與側邊欄
+ * ------------------------------------------------------------------ */
+
+async function testInfiniteScrollAndSidebar(browser, errors) {
+    const page = await (await browser.newContext()).newPage();
+    watchErrors(page, errors);
+
+    console.log('\n# 側邊欄');
+    await page.goto(`${BASE}/showtime.html`);
+    await page.waitForSelector('.sidebar-link');
+    check('側邊欄由共用模組產生', await page.locator('#sidebar .sidebar-link').count() >= 4);
+    check('目前頁面有 active 標記',
+        await page.locator('.sidebar-link.active[href="showtime.html"]').count() === 1);
+    check('未登入不顯示會員區塊',
+        await page.locator('.sidebar-link[href="profile.html"]').count() === 0);
+    check('未登入顯示登入引導', await page.locator('#sidebar-login-btn').count() === 1);
+
+    console.log('\n# 無限滾動：場次查詢');
+    await page.waitForSelector('.showtime-group');
+    // 清掉日期條件才有足夠資料可以捲
+    await page.fill('#search-date', '');
+    await page.click('#search-btn');
+    await page.waitForSelector('.showtime-group', { timeout: 8000 });
+    await page.waitForTimeout(600);
+
+    const firstBatch = await page.locator('.showtime-slot').count();
+    check('第一頁載入部分場次', firstBatch > 0 && firstBatch <= 12, `count=${firstBatch}`);
+
+    const statsText = await page.locator('#showtime-stats').textContent();
+    check('顯示總數與已載入數', /共\s*\d+\s*個場次/.test(statsText), statsText.trim());
+
+    // 捲到底觸發載入
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForFunction(
+        previous => document.querySelectorAll('.showtime-slot').length > previous,
+        firstBatch, { timeout: 8000 }
+    );
+    const secondBatch = await page.locator('.showtime-slot').count();
+    check('捲到底自動載入更多', secondBatch > firstBatch, `${firstBatch} → ${secondBatch}`);
+
+    // 一路捲到結束
+    for (let i = 0; i < 12; i++) {
+        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+        await page.waitForTimeout(350);
+        if (await page.locator('.infinite-end').count() > 0) break;
+    }
+    check('載完後顯示結尾提示', await page.locator('.infinite-end').count() === 1);
+
+    console.log('\n# 登入後的側邊欄');
+    await login(page, 'demo', 'demo123');
+    check('登入後出現會員區塊',
+        await page.locator('.sidebar-link[href="profile.html"]').count() === 1);
+    check('側邊欄顯示使用者與餘額', await page.locator('.sidebar-user .sidebar-balance').count() === 1);
+    check('一般會員看不到管理後台',
+        await page.locator('.sidebar-link[href="admin.html"]').count() === 0);
+}
+
+/* ------------------------------------------------------------------ *
+ * 管理後台
+ * ------------------------------------------------------------------ */
+
+async function testAdminConsole(browser, errors) {
+    const page = await (await browser.newContext()).newPage();
+    watchErrors(page, errors);
+
+    console.log('\n# 管理後台：權限');
+    await page.goto(`${BASE}/admin.html`);
+    await page.waitForSelector('#admin-denied', { state: 'visible', timeout: 8000 });
+    check('未登入看到權限不足', await page.locator('#admin-denied').isVisible());
+
+    await login(page, 'demo', 'demo123');
+    await page.goto(`${BASE}/admin.html`);
+    await page.waitForTimeout(1200);
+    check('一般會員看到權限不足', await page.locator('#admin-denied').isVisible());
+
+    console.log('\n# 管理後台：管理員');
+    await logout(page);
+    await login(page, 'admin', 'admin123');
+    check('管理員側邊欄出現管理區塊',
+        await page.locator('.sidebar-link[href="admin.html"]').count() === 1);
+
+    await page.goto(`${BASE}/admin.html`);
+    await page.waitForSelector('#admin-content', { state: 'visible', timeout: 8000 });
+    await page.waitForSelector('#admin-stats .stat-card', { timeout: 8000 });
+    check('顯示營運概況四張卡', await page.locator('#admin-stats .stat-card').count() === 4);
+    check('顯示熱門電影排行', await page.locator('.top-movie-row').count() > 0);
+
+    await page.waitForSelector('#admin-showtime-list tr', { timeout: 8000 });
+    const showtimeRows = await page.locator('#admin-showtime-list tr').count();
+    check('場次列表已載入', showtimeRows > 0, `rows=${showtimeRows}`);
+    check('場次列表有上座率長條', await page.locator('.occupancy-bar').count() > 0);
+
+    console.log('\n# 管理後台：排片');
+    const future = new Date();
+    future.setDate(future.getDate() + 4);
+    const futureStr = `${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, '0')}-${String(future.getDate()).padStart(2, '0')}`;
+
+    await page.fill('#new-date', futureStr);
+    await page.fill('#new-time', '07:30');
+    await page.fill('#new-price', '260');
+    await page.click('#create-showtime-form button[type=submit]');
+    await page.waitForTimeout(1200);
+    check('排片成功提示',
+        (await page.locator('.toast-body').last().textContent()).includes('排片成功'));
+
+    // 同廳同時段再排一次應被擋下
+    await page.fill('#new-date', futureStr);
+    await page.fill('#new-time', '07:30');
+    await page.click('#create-showtime-form button[type=submit]');
+    await page.waitForTimeout(1000);
+    check('撞廳排片被擋下',
+        (await page.locator('.toast-body').last().textContent()).includes('已經有排片'));
+
+    console.log('\n# 管理後台：訂單與代客退票');
+    await page.click('[data-bs-target="#panel-bookings"]');
+    await page.waitForSelector('.admin-booking', { timeout: 8000 });
+    check('訂單列表已載入', await page.locator('.admin-booking').count() > 0);
+    check('訂單顯示座位明細', await page.locator('.admin-seat').count() > 0);
+
+    const refundBtnCount = await page.locator('.admin-refund-btn').count();
+    if (refundBtnCount > 0) {
+        page.once('dialog', dialog => dialog.accept());
+        await page.click('.admin-refund-btn');
+        await page.waitForTimeout(1500);
+        check('代客退票成功',
+            (await page.locator('.toast-body').last().textContent()).includes('已退票'));
+    } else {
+        check('代客退票成功', false, '找不到可退的座位');
+    }
+
+    console.log('\n# 管理後台：會員');
+    await page.click('[data-bs-target="#panel-users"]');
+    await page.waitForSelector('#admin-user-list tr', { timeout: 8000 });
+    check('會員列表已載入', await page.locator('#admin-user-list tr').count() >= 4);
+}
+
 /* ------------------------------------------------------------------ */
 
 async function main() {
@@ -369,7 +566,9 @@ async function main() {
     try {
         await testMainFlow(browser, errors);
         await testSeatLockAcrossUsers(browser, errors);
+        await testInfiniteScrollAndSidebar(browser, errors);
         await testAccountFlow(browser, errors);
+        await testAdminConsole(browser, errors);
     } catch (error) {
         problems.push(`測試中斷: ${error.message}`);
         console.error('\n測試中斷:', error);
