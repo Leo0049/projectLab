@@ -111,7 +111,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                     <div class="alert alert-danger">
                         <h4><i class="fas fa-exclamation-triangle"></i> 載入失敗</h4>
                         <p>無法載入電影資料，請稍後再試。</p>
-                        <p class="small text-muted">錯誤: ${error.message}</p>
+                        <p class="small text-muted">錯誤: ${escapeHtml(error.message)}</p>
                         <a href="index.html" class="btn btn-primary">返回首頁</a>
                     </div>
                 </div>

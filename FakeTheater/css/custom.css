@@ -1,5 +1,38 @@
+/* ==================================================================
+   FakeTheater 自訂樣式
+   目錄：
+     1. 基礎版面 / 側邊欄
+     2. 首頁（輪播、分類、電影卡）
+     3. 場次查詢 / 時刻表 / 電影詳情
+     4. 訂票座位圖
+     5. 登入註冊 Modal
+     6. 票夾側邊欄 / 票券卡
+     7. 結帳側邊欄
+     8. 頁尾
+     9. 共用元件（回到頂部、Toast、載入骨架）
+   ================================================================== */
+
+:root {
+    --ft-dark: #2d2e2e;
+    --ft-dark-2: #505152;
+    --ft-gradient: linear-gradient(135deg, #505152, #2d2e2e);
+    --ft-border: #e6e6e6;
+    --ft-radius: 12px;
+    --ft-shadow: 0 2px 10px rgba(0, 0, 0, .06);
+    --ft-shadow-lg: 0 8px 25px rgba(0, 0, 0, .12);
+}
+
+/* ------------------------------------------------------------------
+   1. 基礎版面 / 側邊欄
+   ------------------------------------------------------------------ */
+
 body {
-    padding-top: 56px; /* Adjust body padding for fixed navbar */
+    padding-top: 56px; /* 對應固定導覽列高度 */
+}
+
+main {
+    padding-top: 24px;
+    padding-bottom: 48px;
 }
 
 #sidebar {
@@ -8,96 +41,832 @@ body {
     left: 0;
     bottom: 0;
     z-index: 100;
-    padding: 56px 0 0; /* Add padding to offset the navbar */
+    padding: 56px 0 0;
     box-shadow: inset -1px 0 0 rgba(0, 0, 0, .1);
 }
 
-.sidebar .nav-link {
-    font-weight: 500;
-    color: #333;
+.sidebarstyle {
+    min-height: 52px;
+    letter-spacing: 1px;
+    border-color: rgba(255, 255, 255, .15) !important;
+    transition: background-color .2s, padding-left .2s;
 }
 
-.sidebar .nav-link.active {
-    color: #0d6efd;
+.sidebarstyle:hover {
+    background-color: rgba(255, 255, 255, .08);
+    color: #fff;
 }
 
-main {
-    padding-top: 24px;
+.sidebarstyle.active {
+    background: var(--ft-gradient);
+    color: #fff;
+    font-weight: 600;
 }
 
-/* --- Seat Map Styling --- */
-.screen-indicator {
-    background-color: #333;
-    color: white;
-    text-align: center;
-    padding: 8px;
-    margin-bottom: 20px;
-    letter-spacing: 2px;
-    font-weight: bold;
+/* 手機版導覽列漢堡圖示 */
+.navbar-toggler .line {
+    display: block;
+    width: 22px;
+    height: 2px;
+    margin: 4px 0;
+    background-color: rgba(255, 255, 255, .85);
+    transition: transform .2s;
 }
 
-.seat-map {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(30px, 1fr));
-    gap: 5px;
-    max-width: 600px;
-    margin: auto;
+.navbar-toggler:focus {
+    box-shadow: none;
 }
 
-.seat {
-    width: 30px;
-    height: 30px;
-    border: 1px solid #ccc;
-    border-radius: 5px;
-    cursor: pointer;
-    transition: background-color 0.2s;
+.nav-link .user-balance {
+    font-weight: 700;
 }
 
-.seat.available {
-    background-color: #fff;
+/* ------------------------------------------------------------------
+   2. 首頁（輪播、分類、電影卡）
+   ------------------------------------------------------------------ */
+
+.hero-carousel {
+    border-radius: var(--ft-radius);
+    overflow: hidden;
+    box-shadow: var(--ft-shadow-lg);
 }
 
-.seat.available:hover {
-    background-color: #e0e0e0;
-}
-
-.seat.selected {
-    background-color: #28a745; /* Green */
-    border-color: #1e7e34;
-}
-
-.seat.occupied {
-    background-color: #6c757d; /* Gray */
-    cursor: not-allowed;
-}
-
-
-/* --- Seat Legend --- */
-.seat-legend {
-    display: flex;
-    justify-content: center;
-    gap: 20px;
-    margin-top: 20px;
-}
-
-.seat-legend-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.seat-legend-item .seat {
-    cursor: default;
-}
-
-
-/* --- Carousel --- */
 .carousel-item img {
     height: 400px;
     object-fit: cover;
 }
 
 .carousel-caption {
-    background-color: rgba(0, 0, 0, 0.5);
+    background-color: rgba(0, 0, 0, .55);
     border-radius: .5rem;
+    padding: 1rem 1.25rem;
+}
+
+.carousel-caption h3 {
+    font-weight: 700;
+}
+
+.category-tabs {
+    gap: .5rem;
+    border-bottom: 1px solid var(--ft-border);
+    padding-bottom: .75rem;
+}
+
+.category-tabs .nav-link {
+    color: var(--ft-dark);
+    font-weight: 600;
+    border-radius: 999px;
+    padding: .4rem 1.1rem;
+}
+
+.category-tabs .nav-link.active {
+    background: var(--ft-gradient);
+    color: #fff;
+}
+
+.section-title {
+    font-size: 1.35rem;
+    font-weight: 700;
+    padding-left: .75rem;
+    border-left: 4px solid var(--ft-dark);
+}
+
+.movie-card {
+    border: 1px solid var(--ft-border);
+    border-radius: var(--ft-radius);
+    overflow: hidden;
+    transition: transform .2s, box-shadow .2s;
+}
+
+.movie-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--ft-shadow-lg);
+}
+
+.card-img-wrapper {
+    position: relative;
+    overflow: hidden;
+}
+
+.movie-card .card-img-top,
+.card .card-img-top {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 2 / 3;
+    object-fit: cover;
+    transition: transform .3s;
+}
+
+.movie-card:hover .card-img-top {
+    transform: scale(1.04);
+}
+
+.category-badge {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 2;
+    font-size: .75rem;
+    padding: .35rem .6rem;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .25);
+}
+
+.rating-badge {
+    font-size: .85rem;
+    font-weight: 600;
+    color: #b8860b;
+    white-space: nowrap;
+}
+
+.movie-card .card-title {
+    font-size: 1rem;
+    font-weight: 700;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.movie-card .card-text {
+    font-size: .85rem;
+    color: #6c757d;
+}
+
+.btn-book {
+    background: var(--ft-gradient);
+    color: #fff;
+    border: none;
+    border-radius: 999px;
+    padding: .4rem 1rem;
+    font-weight: 600;
+    transition: opacity .2s, transform .2s;
+}
+
+.btn-book:hover,
+.btn-book:focus {
+    color: #fff;
+    opacity: .88;
+    transform: translateY(-1px);
+}
+
+/* ------------------------------------------------------------------
+   3. 場次查詢 / 時刻表 / 電影詳情
+   ------------------------------------------------------------------ */
+
+.showtime-card,
+.schedule-card {
+    border: 1px solid var(--ft-border);
+    border-radius: var(--ft-radius);
+    overflow: hidden;
+    transition: transform .2s, box-shadow .2s;
+}
+
+.showtime-card:hover,
+.schedule-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--ft-shadow-lg);
+}
+
+.showtime-card .card-title {
+    font-weight: 700;
+}
+
+.showtime-btn,
+.showtime-detail-btn {
+    min-width: 116px;
+    line-height: 1.35;
+    border-radius: 10px;
+    text-align: center;
+}
+
+.showtime-detail-btn small,
+.showtime-btn small {
+    display: block;
+    font-size: .72rem;
+}
+
+.date-btn {
+    min-width: 84px;
+    line-height: 1.3;
+    border-radius: 10px;
+}
+
+.movie-poster-large {
+    box-shadow: var(--ft-shadow-lg);
+}
+
+.booking-movie-card {
+    border: 1px solid var(--ft-border);
+    border-radius: var(--ft-radius);
+    overflow: hidden;
+}
+
+.booking-movie-card img {
+    max-height: 160px;
+}
+
+/* ------------------------------------------------------------------
+   4. 訂票座位圖
+   ------------------------------------------------------------------ */
+
+.screen-indicator {
+    max-width: 620px;
+    margin: 0 auto 28px;
+    padding: 8px;
+    background: var(--ft-gradient);
+    color: #fff;
+    text-align: center;
+    letter-spacing: 4px;
+    font-weight: 700;
+    font-size: .85rem;
+    border-radius: 0 0 50% 50% / 0 0 18px 18px;
+    box-shadow: 0 12px 24px -12px rgba(0, 0, 0, .6);
+}
+
+.seat-map {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: .35rem;
+    overflow-x: auto;
+    padding-bottom: .5rem;
+}
+
+.seat-row {
+    display: flex;
+    align-items: center;
+    gap: .3rem;
+}
+
+.seat-row-label {
+    width: 1.4rem;
+    flex: 0 0 1.4rem;
+    text-align: center;
+    font-size: .72rem;
+    font-weight: 700;
+    color: #adb5bd;
+}
+
+.seat {
+    display: inline-block;
+    width: 26px;
+    height: 26px;
+    flex: 0 0 26px;
+    padding: 0;
+    background-color: #e9ecef;
+    border: 1px solid #ced4da;
+    border-radius: 7px 7px 3px 3px;
+    cursor: pointer;
+    transition: background-color .15s, transform .15s;
+}
+
+.seat.available:not(.selected):hover {
+    background-color: #ced4da;
+    transform: translateY(-2px);
+}
+
+.seat.selected:hover {
+    transform: translateY(-2px);
+}
+
+.seat.selected {
+    background-color: #198754;
+    border-color: #146c43;
+}
+
+.seat.occupied {
+    background-color: #adb5bd;
+    border-color: #8b9299;
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.seat-legend {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 1.25rem;
+    font-size: .875rem;
+    color: #6c757d;
+}
+
+.seat-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+}
+
+.seat-legend-item .seat {
+    cursor: default;
+}
+
+/* ------------------------------------------------------------------
+   5. 登入註冊 Modal
+   ------------------------------------------------------------------ */
+
+.auth-modal-content {
+    border: none;
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .3);
+}
+
+.auth-tabs {
+    background: #f8f9fa;
+    border-radius: 10px;
+    padding: 4px;
+}
+
+.auth-tabs .nav-link {
+    border-radius: 8px;
+    font-weight: 600;
+    color: #666;
+    transition: all .3s;
+}
+
+.auth-tabs .nav-link.active {
+    background: var(--ft-gradient);
+    color: #fff;
+}
+
+.auth-divider {
+    display: flex;
+    align-items: center;
+    text-align: center;
+    color: #aaa;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+    content: '';
+    flex: 1;
+    border-bottom: 1px solid #ddd;
+}
+
+.auth-divider span {
+    padding: 0 15px;
+    font-size: .85rem;
+}
+
+.btn-google {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    padding: 12px;
+    font-weight: 500;
+    transition: all .3s;
+}
+
+.btn-google:hover {
+    background: #f8f9fa;
+    border-color: #ccc;
+}
+
+/* ------------------------------------------------------------------
+   6. 票夾側邊欄 / 票券卡
+   ------------------------------------------------------------------ */
+
+.wallet-overlay,
+.checkout-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, .5);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity .3s, visibility .3s;
+    z-index: 1040;
+}
+
+.wallet-overlay.open,
+.checkout-overlay.open {
+    opacity: 1;
+    visibility: visible;
+}
+
+.wallet-sidebar,
+.checkout-sidebar {
+    position: fixed;
+    top: 0;
+    right: -420px;
+    width: 380px;
+    max-width: 90vw;
+    height: 100%;
+    background: #fff;
+    box-shadow: -5px 0 30px rgba(0, 0, 0, .2);
+    transition: right .3s ease;
+    z-index: 1050;
+    display: flex;
+    flex-direction: column;
+}
+
+.wallet-sidebar.open,
+.checkout-sidebar.open {
+    right: 0;
+}
+
+.wallet-sidebar-header,
+.checkout-sidebar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px;
+    background: var(--ft-gradient);
+    color: #fff;
+}
+
+.wallet-sidebar-header .btn-close,
+.checkout-sidebar-header .btn-close {
+    filter: brightness(0) invert(1);
+}
+
+.wallet-sidebar-body,
+.checkout-sidebar-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+}
+
+.ticket-card {
+    background: #fff;
+    border: 1px solid var(--ft-border);
+    border-radius: var(--ft-radius);
+    overflow: hidden;
+    box-shadow: var(--ft-shadow);
+    transition: transform .2s;
+}
+
+.ticket-card:hover {
+    transform: translateY(-2px);
+}
+
+.ticket-card.used {
+    opacity: .75;
+}
+
+.ticket-card.using {
+    border-color: #ffc107;
+    box-shadow: 0 0 0 2px rgba(255, 193, 7, .25);
+}
+
+.ticket-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    background: #f8f9fa;
+}
+
+.ticket-card-body {
+    padding: 15px;
+}
+
+.ticket-card-footer {
+    padding: 10px 15px;
+    border-top: 1px dashed var(--ft-border);
+}
+
+/* 票根造型：左右各挖一個半圓缺口 */
+.ticket-card-realistic {
+    position: relative;
+}
+
+.ticket-card-realistic::before,
+.ticket-card-realistic::after {
+    content: '';
+    position: absolute;
+    bottom: 44px;
+    width: 14px;
+    height: 14px;
+    background: #f1f1f1;
+    border-radius: 50%;
+}
+
+.ticket-card-realistic::before {
+    left: -8px;
+}
+
+.ticket-card-realistic::after {
+    right: -8px;
+}
+
+.single-ticket,
+.ticket-using-info {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.single-ticket-poster {
+    width: 56px;
+    height: 84px;
+    object-fit: cover;
+    border-radius: 6px;
+    flex: 0 0 56px;
+}
+
+.single-ticket-info {
+    min-width: 0;
+}
+
+.single-ticket-info h6 {
+    font-weight: 700;
+    word-break: break-word;
+}
+
+.ticket-using-content {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ticket-qr-section {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--ft-border);
+}
+
+.ticket-qr-canvas {
+    border: 1px solid var(--ft-border);
+    border-radius: 6px;
+}
+
+.ticket-countdown {
+    text-align: center;
+    line-height: 1.1;
+}
+
+.countdown-number {
+    display: block;
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #fd7e14;
+}
+
+.countdown-label {
+    font-size: .75rem;
+    color: #6c757d;
+}
+
+/* ------------------------------------------------------------------
+   7. 結帳側邊欄
+   ------------------------------------------------------------------ */
+
+.order-card,
+.payment-card {
+    border: 1px solid var(--ft-border);
+    border-radius: var(--ft-radius);
+    overflow: hidden;
+    box-shadow: var(--ft-shadow);
+}
+
+.order-card {
+    padding: 15px;
+}
+
+.payment-card-header {
+    margin: 0;
+    padding: 12px 15px;
+    background: #f8f9fa;
+    font-weight: 700;
+    border-bottom: 1px solid var(--ft-border);
+}
+
+.payment-card-body {
+    padding: 15px;
+}
+
+.order-movie-info {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.order-movie-poster {
+    width: 72px;
+    height: 108px;
+    object-fit: cover;
+    border-radius: 6px;
+    flex: 0 0 72px;
+}
+
+.order-movie-details {
+    min-width: 0;
+}
+
+.order-movie-details h6 {
+    font-weight: 700;
+    word-break: break-word;
+}
+
+/* ------------------------------------------------------------------
+   8. 頁尾
+   ------------------------------------------------------------------ */
+
+.site-footer {
+    background: var(--ft-dark);
+    color: rgba(255, 255, 255, .75);
+    padding: 48px 0 20px;
+    margin-top: 40px;
+}
+
+.footer-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 24px;
+}
+
+.footer-main {
+    display: grid;
+    grid-template-columns: 1.6fr 1fr 1fr 1.2fr;
+    gap: 32px;
+}
+
+.footer-logo {
+    color: #fff;
+    font-weight: 700;
+    margin-bottom: .5rem;
+}
+
+.footer-tagline {
+    font-size: .9rem;
+    margin-bottom: 1rem;
+}
+
+.footer-social {
+    display: flex;
+    gap: 10px;
+}
+
+.social-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, .1);
+    color: rgba(255, 255, 255, .8);
+    transition: background-color .2s, color .2s, transform .2s;
+}
+
+.social-link:hover {
+    background: rgba(255, 255, 255, .22);
+    color: #fff;
+    transform: translateY(-2px);
+}
+
+.footer-heading {
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 1rem;
+}
+
+.footer-nav {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.footer-nav li {
+    margin-bottom: .55rem;
+    font-size: .9rem;
+}
+
+.footer-nav a {
+    color: rgba(255, 255, 255, .75);
+    text-decoration: none;
+    transition: color .2s;
+}
+
+.footer-nav a:hover {
+    color: #fff;
+    text-decoration: underline;
+}
+
+.footer-bottom {
+    margin-top: 36px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(255, 255, 255, .12);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: .5rem;
+    text-align: center;
+}
+
+.footer-legal a {
+    color: rgba(255, 255, 255, .75);
+    text-decoration: none;
+    font-size: .85rem;
+}
+
+.footer-legal a:hover {
+    color: #fff;
+}
+
+.footer-legal .divider {
+    margin: 0 .6rem;
+    color: rgba(255, 255, 255, .3);
+}
+
+.footer-copyright {
+    font-size: .82rem;
+    margin: 0;
+    color: rgba(255, 255, 255, .55);
+}
+
+/* ------------------------------------------------------------------
+   9. 共用元件
+   ------------------------------------------------------------------ */
+
+.back-to-top {
+    position: fixed;
+    bottom: 30px;
+    right: 30px;
+    width: 50px;
+    height: 50px;
+    background: var(--ft-gradient);
+    color: #fff;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity .3s, visibility .3s, transform .2s;
+    z-index: 1000;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, .3);
+}
+
+.back-to-top.visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+.back-to-top:hover {
+    transform: translateY(-5px);
+}
+
+.toast-container {
+    z-index: 9999 !important;
+}
+
+/* 載入骨架 */
+.loading-skeleton {
+    background: linear-gradient(90deg, #eee 25%, #f5f5f5 50%, #eee 75%);
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.4s infinite;
+    border-radius: var(--ft-radius);
+}
+
+.loading-card {
+    width: 100%;
+    aspect-ratio: 2 / 3;
+}
+
+@keyframes skeleton-loading {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* ------------------------------------------------------------------
+   響應式調整
+   ------------------------------------------------------------------ */
+
+@media (max-width: 991.98px) {
+    .footer-main {
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+    }
+}
+
+@media (max-width: 767.98px) {
+    .carousel-item img {
+        height: 260px;
+    }
+
+    .footer-main {
+        grid-template-columns: 1fr;
+    }
+
+    .seat {
+        width: 22px;
+        height: 22px;
+        flex-basis: 22px;
+    }
+
+    .back-to-top {
+        bottom: 20px;
+        right: 20px;
+        width: 44px;
+        height: 44px;
+    }
 }

@@ -15,37 +15,50 @@ document.addEventListener('DOMContentLoaded', async function () {
             renderMovies(allMovies);
         } catch (error) {
             console.error('載入電影失敗:', error);
+            movieList.innerHTML = `
+                <div class="col-12">
+                    <div class="alert alert-danger">
+                        無法載入電影資料，請重新整理頁面再試一次。
+                    </div>
+                </div>
+            `;
         }
     }
 
     // 渲染輪播圖
     function renderCarousel() {
-        // 選擇前 3 部熱映電影作為輪播
-        const featuredMovies = allMovies.filter(m => m.category === 'NowShowing').slice(0, 2);
-        featuredMovies.push(...allMovies.filter(m => m.category === 'TopPick').slice(0, 2));
-        featuredMovies.push(...allMovies.filter(m => m.category === 'ComingSoon').slice(0, 2));
+        // 各類別各取 2 部作為輪播
+        const featuredMovies = [
+            ...allMovies.filter(m => m.category === 'NowShowing').slice(0, 2),
+            ...allMovies.filter(m => m.category === 'TopPick').slice(0, 2),
+            ...allMovies.filter(m => m.category === 'ComingSoon').slice(0, 2)
+        ];
 
         if (featuredMovies.length === 0) return;
 
         carouselIndicators.innerHTML = featuredMovies.map((_, index) => `
-                    <button type="button" data-bs-target="#movieCarousel" data-bs-slide-to="${index}" 
-                        ${index === 0 ? 'class="active" aria-current="true"' : ''} 
+                    <button type="button" data-bs-target="#movieCarousel" data-bs-slide-to="${index}"
+                        ${index === 0 ? 'class="active" aria-current="true"' : ''}
                         aria-label="Slide ${index + 1}"></button>
                 `).join('');
 
-        carouselInner.innerHTML = featuredMovies.map((movie, index) => `
+        carouselInner.innerHTML = featuredMovies.map((movie, index) => {
+            // 橫式主視覺若缺漏就退回直式海報，避免破圖
+            const banner = movie.hposterImage || movie.posterImage;
+            return `
                     <div class="carousel-item ${index === 0 ? 'active' : ''}">
-                        <img src="${movie.hposterImage}" class="d-block w-100" alt="${movie.title}" 
-                            style="filter: brightness(0.7); object-fit: fill;">
+                        <img src="${escapeHtml(banner)}" class="d-block w-100" alt="${escapeHtml(movie.title)}"
+                            style="filter: brightness(0.7);">
                         <div class="carousel-caption d-none d-md-block">
-                            <h3>${movie.title}</h3>
-                            <p>${movie.description.substring(0, 80)}...</p>
+                            <h3>${escapeHtml(movie.title)}</h3>
+                            <p>${escapeHtml(movie.description.substring(0, 80))}...</p>
                             <a href="movie-detail.html?id=${movie.id}" class="btn btn-book">
                                 立即訂票 →
                             </a>
                         </div>
                     </div>
-                `).join('');
+                `;
+        }).join('');
     }
 
     // 渲染電影列表
@@ -68,11 +81,11 @@ document.addEventListener('DOMContentLoaded', async function () {
                                 <span class="category-badge badge ${getCategoryBadgeClass(movie.category)}">
                                     ${getCategoryLabel(movie.category)}
                                 </span>
-                                <img src="${movie.posterImage}" class="card-img-top" alt="${movie.title}">
+                                <img src="${escapeHtml(movie.posterImage)}" class="card-img-top" alt="${escapeHtml(movie.title)}">
                             </div>
                             <div class="card-body d-flex flex-column">
-                                <h5 class="card-title" title="${movie.title}">${movie.title}</h5>
-                                <p class="card-text flex-grow-1">${movie.description.substring(0, 50)}...</p>
+                                <h5 class="card-title" title="${escapeHtml(movie.title)}">${escapeHtml(movie.title)}</h5>
+                                <p class="card-text flex-grow-1">${escapeHtml(movie.description.substring(0, 50))}...</p>
                                 <div class="d-flex justify-content-between align-items-center mt-auto">
                                     <a href="movie-detail.html?id=${movie.id}" class="btn btn-sm btn-book">
                                         查看詳情
