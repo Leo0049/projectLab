@@ -325,7 +325,7 @@ const WalletSidebar = {
                         </div>
                     </div>
                     <div class="ticket-card-footer d-flex justify-content-center">
-                        <button type="button" class="btn btn-sm btn-dark w-50 rounded use-ticket-btn"
+                        <button type="button" class="btn btn-sm btn-primary w-50 use-ticket-btn"
                                 data-ticket-id="${escapeHtml(ticket.uniqueId)}">
                             立即使用
                         </button>

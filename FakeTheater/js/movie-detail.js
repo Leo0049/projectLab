@@ -209,13 +209,12 @@ document.addEventListener('DOMContentLoaded', async function () {
                         <span class="badge bg-primary ms-2">${day.times.length} 場</span>
                     </div>
                     <div class="card-body">
-                        <div class="d-flex flex-wrap gap-2">
+                        <div class="showtime-slots">
                             ${day.times.map(st => `
-                                <a href="booking.html?showtime=${st.id}&movie=${movie.id}&date=${day.dateStr}&time=${st.time}" 
-                                   class="btn btn-outline-primary showtime-detail-btn">
-                                    <div class="fw-bold">${st.time}</div>
-                                    <small class="text-muted">${st.theater.name}</small>
-                                    <div class="small text-success">NT$ ${st.price}</div>
+                                <a class="showtime-slot"
+                                   href="booking.html?showtime=${st.id}&movie=${movie.id}&date=${day.dateStr}&time=${st.time}">
+                                    <span class="slot-time">${st.time}</span>
+                                    <span class="slot-meta">${escapeHtml(st.theater.name)} · NT$${st.price}</span>
                                 </a>
                             `).join('')}
                         </div>

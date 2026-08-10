@@ -158,38 +158,35 @@ document.addEventListener('DOMContentLoaded', async function () {
         `;
 
         scheduleContainer.innerHTML = statsHtml + daySchedule.map(item => `
-            <div class="card mb-4 schedule-card shadow-sm">
+            <div class="card mb-3 schedule-card">
                 <div class="row g-0">
-                    <div class="col-md-2">
-                        <a href="movie-detail.html?id=${item.movie.id}">
-                            <img src="${item.movie.posterImage}" class="img-fluid rounded-start h-100 w-100" 
-                                 alt="${item.movie.title}" style="object-fit: cover; height: 100px;">
+                    <div class="col-md-2 col-4 showtime-poster-col">
+                        <a href="movie-detail.html?id=${item.movie.id}" class="showtime-poster-link">
+                            <img src="${escapeHtml(item.movie.posterImage)}" class="showtime-poster"
+                                 alt="${escapeHtml(item.movie.title)}">
                         </a>
                     </div>
-                    <div class="col-md-10">
+                    <div class="col-md-10 col-8">
                         <div class="card-body">
-                            <div class="d-flex justify-content-between align-items-start mb-2">
-                                <div>
-                                    <h5 class="card-title mb-1">
-                                        <a href="movie-detail.html?id=${item.movie.id}" class="text-decoration-none text-dark">
-                                            ${item.movie.title}
-                                        </a>
-                                    </h5>
-                                    <span class="badge bg-warning text-dark">
-                                        ⭐ ${item.movie.rating}/10
-                                    </span>
-                                    <span class="badge bg-secondary ms-1">
-                                        ${getCategoryLabel(item.movie.category)}
-                                    </span>
-                                </div>
+                            <h5 class="card-title mb-1">
+                                <a href="movie-detail.html?id=${item.movie.id}"
+                                   class="text-decoration-none link-body-emphasis">${escapeHtml(item.movie.title)}</a>
+                            </h5>
+                            <div class="movie-meta mb-2">
+                                <span class="meta-rating">⭐ ${item.movie.rating}</span>
+                                <span class="meta-sep">·</span><span>${escapeHtml(item.movie.duration)}</span>
+                                <span class="meta-sep">·</span><span>${escapeHtml(item.movie.ratingClass)}</span>
+                                <span class="badge bg-secondary ms-1">${getCategoryLabel(item.movie.category)}</span>
                             </div>
-                            <p class="card-text text-muted small mb-3">${item.movie.description?.substring(0, 100) || ''}...</p>
-                            <div class="showtime-buttons">
+                            <p class="card-text text-muted small mb-3 d-none d-md-block">
+                                ${escapeHtml(item.movie.description?.substring(0, 100) || '')}...
+                            </p>
+                            <div class="showtime-slots">
                                 ${item.showtimes.map(st => `
-                                    <a href="booking.html?showtime=${st.id}&movie=${item.movie.id}&date=${selectedDate}&time=${st.time}" 
-                                       class="btn btn-outline-primary btn-sm me-2 mb-2 showtime-btn">
-                                        <strong>${st.time}</strong><br>
-                                        <small>${st.theater} | NT$${st.price}</small>
+                                    <a class="showtime-slot"
+                                       href="booking.html?showtime=${st.id}&movie=${item.movie.id}&date=${selectedDate}&time=${st.time}">
+                                        <span class="slot-time">${st.time}</span>
+                                        <span class="slot-meta">${escapeHtml(st.theater)} · NT$${st.price}</span>
                                     </a>
                                 `).join('')}
                             </div>

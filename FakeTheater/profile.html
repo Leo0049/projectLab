@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="zh-TW" data-bs-theme="dark">
 
 <head>
     <meta charset="UTF-8">
@@ -81,15 +81,33 @@
                 </div>
 
                 <!-- Balance -->
-                <div class="card mb-4">
-                    <div class="card-header bg-primary text-white">
-                        當前餘額
+                <div class="balance-card p-4 mb-4 d-flex justify-content-between align-items-center flex-wrap gap-3">
+                    <div>
+                        <div class="balance-label">當前餘額</div>
+                        <div class="balance-amount">NT$ <span id="current_amount" class="user-balance">0</span></div>
                     </div>
-                    <div class="card-body d-flex justify-content-between align-items-center">
-                        <h3 class="mb-0">NT$ <span id="current_amount" class="user-balance">0</span></h3>
-                        <button class="btn btn-primary" id="nav-deposit-btn">
-                            儲值
-                        </button>
+                    <button class="btn btn-primary btn-lg" id="nav-deposit-btn">儲值</button>
+                </div>
+
+                <!-- Stats -->
+                <div class="row g-3 mb-4">
+                    <div class="col-md-4 col-6">
+                        <div class="stat-card">
+                            <div class="stat-label">可使用票券</div>
+                            <div class="stat-value is-gold" id="stat-unused">0</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 col-6">
+                        <div class="stat-card">
+                            <div class="stat-label">已使用票券</div>
+                            <div class="stat-value" id="stat-used">0</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 col-12">
+                        <div class="stat-card">
+                            <div class="stat-label">累計消費</div>
+                            <div class="stat-value is-green">NT$ <span id="stat-spent">0</span></div>
+                        </div>
                     </div>
                 </div>
 
@@ -109,7 +127,7 @@
                                                 placeholder="輸入新名稱">
                                         </div>
                                         <div class="col-md-4 d-flex align-items-end">
-                                            <button id="changeUsername" type="submit" class="btn btn-success w-100">
+                                            <button id="changeUsername" type="submit" class="btn btn-primary w-100">
                                                 更新用戶名
                                             </button>
                                         </div>
@@ -143,8 +161,11 @@
                                 </tbody>
                             </table>
                         </div>
-                        <div id="no-transactions" class="text-center text-muted py-4" style="display: none;">
-                            <p class="mt-2">暫無消費紀錄</p>
+                        <div id="no-transactions" class="empty-state" style="display: none;">
+                            <span class="empty-icon">🧾</span>
+                            <p class="mb-1">暫無消費紀錄</p>
+                            <p class="small mb-3">儲值或購票之後，紀錄會顯示在這裡。</p>
+                            <a href="booking.html" class="btn btn-primary btn-sm">立即訂票</a>
                         </div>
                     </div>
                 </div>
@@ -181,8 +202,9 @@
                 usernameInput.placeholder = userInfo.username || '輸入新名稱';
             }
 
-            // 載入消費紀錄
+            // 載入消費紀錄與票券統計
             loadTransactions();
+            loadTicketStats(userInfo.id);
 
             // 更新用戶名
             const updateForm = document.getElementById('update-profile-form');
@@ -204,6 +226,26 @@
                 });
             }
         });
+
+        // 票券統計：未使用 / 已使用 / 累計消費
+        function loadTicketStats(userId) {
+            const bookings = DataAPI.read(DataAPI.STORAGE_KEYS.BOOKINGS).filter(b => b.userId === userId);
+            const usedTickets = DataAPI.read(DataAPI.STORAGE_KEYS.USED_TICKETS).filter(t => t.userId === userId);
+            const transactions = DataAPI.read(DataAPI.STORAGE_KEYS.TRANSACTIONS).filter(t => t.userId === userId);
+
+            const unusedCount = bookings.reduce((sum, booking) => {
+                const statuses = booking.seatStatuses || (booking.seats || []).map(() => 'unused');
+                return sum + statuses.filter(s => s === 'unused' || s === 'using').length;
+            }, 0);
+
+            const spent = transactions
+                .filter(t => t.amount < 0)
+                .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+
+            document.getElementById('stat-unused').textContent = unusedCount;
+            document.getElementById('stat-used').textContent = usedTickets.length;
+            document.getElementById('stat-spent').textContent = spent;
+        }
 
         // 載入消費紀錄
         function loadTransactions() {
@@ -231,8 +273,8 @@
                 <tr>
                     <td>${index + 1}</td>
                     <td>
-                        <span class="badge ${t.amount > 0 ? 'bg-success' : 'bg-danger'}">
-                            ${escapeHtml(t.type)}
+                        <span class="badge ${t.amount > 0 ? 'bg-success' : 'bg-warning'}">
+                            ${escapeHtml(t.type.split(' - ')[0])}
                         </span>
                     </td>
                     <td class="small">${escapeHtml(t.movieTitle) || '-'}</td>

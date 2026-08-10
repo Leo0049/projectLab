@@ -57,6 +57,20 @@ npm test
 | `js/wallet-sidebar.js` | `WalletSidebar`：我的票夾（未使用／使用中／歷史票券） |
 | `js/footer.js` | `Footer`：各頁共用頁尾 |
 
+## 介面設計
+
+全站採影院深色主題，透過 Bootstrap 5.3 的 `data-bs-theme="dark"` 打底，
+再由 `css/custom.css` 最上方的 CSS 變數接手實際色值。要改風格改那一區就好：
+
+| 用途 | 變數 | 說明 |
+|---|---|---|
+| 底色層次 | `--ft-bg` / `--ft-surface` / `--ft-surface-2` / `--ft-surface-3` | 由深到淺，用來表現卡片與元件的層次 |
+| 文字 | `--ft-text` / `--ft-text-dim` / `--ft-text-muted` | 主要／次要／輔助 |
+| 強調 | `--ft-gold` | 主要動作、選取狀態、強調數字 |
+| 語意 | `--ft-red` / `--ft-green` | 紅色只用於「現正熱映」，綠色只用於金額與付款成功 |
+
+所有文字與背景組合皆通過 WCAG AA（對比度 ≥ 4.5）。
+
 ## 資料設計
 
 ### 靜態資料（`data/`）
