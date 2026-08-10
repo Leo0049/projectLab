@@ -1094,6 +1094,30 @@ main h1.h2 {
    7. 結帳側邊欄
    ------------------------------------------------------------------ */
 
+/* 座位保留倒數 */
+.lock-timer {
+    display: none;
+    margin-bottom: 1rem;
+    padding: .6rem .9rem;
+    text-align: center;
+    font-size: .88rem;
+    color: var(--ft-gold-soft);
+    background: var(--ft-gold-dim);
+    border: 1px solid rgba(240, 180, 41, .32);
+    border-radius: var(--ft-radius-sm);
+}
+
+.lock-timer strong {
+    font-variant-numeric: tabular-nums;
+    font-size: 1rem;
+}
+
+.lock-timer.is-urgent {
+    color: #ff8b8f;
+    background: rgba(229, 72, 77, .12);
+    border-color: rgba(229, 72, 77, .35);
+}
+
 .order-card,
 .payment-card {
     background: var(--ft-surface-2);

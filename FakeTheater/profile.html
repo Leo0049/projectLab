@@ -180,85 +180,71 @@
     <script src="js/wallet-sidebar.js"></script>
     <script src="js/footer.js"></script>
     <script>
-        // 個人專區專用邏輯
-        document.addEventListener('DOMContentLoaded', function () {
-            // 檢查登入狀態
-            const userInfo = JSON.parse(localStorage.getItem('userInfo') || 'null');
-            if (!userInfo) {
-                alert('請先登入');
-                window.location.href = 'index.html';
+        // 個人專區：資料全部來自後端 API
+        document.addEventListener('DOMContentLoaded', async function () {
+            // 等 AuthManager 向伺服器確認過登入狀態再判斷
+            await AuthManager.ready;
+
+            if (!AuthManager.isLoggedIn()) {
+                window.location.replace('index.html');
                 return;
             }
 
-            // 載入餘額
-            const balanceElement = document.getElementById('current_amount');
-            if (balanceElement) {
-                balanceElement.textContent = userInfo.balance || 0;
-            }
+            const user = AuthManager.getUser();
 
-            // 載入用戶名到輸入框
+            document.getElementById('current_amount').textContent = user.balance;
+
             const usernameInput = document.getElementById('usernameUpdate');
-            if (usernameInput) {
-                usernameInput.placeholder = userInfo.username || '輸入新名稱';
-            }
+            usernameInput.placeholder = user.username;
 
-            // 載入消費紀錄與票券統計
             loadTransactions();
-            loadTicketStats(userInfo.id);
+            loadTicketStats();
 
-            // 更新用戶名
-            const updateForm = document.getElementById('update-profile-form');
-            if (updateForm) {
-                updateForm.addEventListener('submit', function (e) {
-                    e.preventDefault();
-                    const newName = document.getElementById('usernameUpdate').value.trim();
+            document.getElementById('update-profile-form').addEventListener('submit', async function (e) {
+                e.preventDefault();
+                const newName = usernameInput.value.trim();
 
-                    if (!newName) {
-                        AuthManager.showToast('請輸入有效的名稱', 'warning');
-                        return;
-                    }
+                if (!newName) {
+                    AuthManager.showToast('請輸入有效的名稱', 'warning');
+                    return;
+                }
 
-                    if (AuthManager.updateUsername(newName)) {
-                        AuthManager.showToast('用戶名已更新！', 'success');
-                        document.getElementById('usernameUpdate').value = '';
-                        document.getElementById('usernameUpdate').placeholder = newName;
-                    }
-                });
-            }
+                const result = await AuthManager.updateUsername(newName);
+                if (result.success) {
+                    AuthManager.showToast('用戶名已更新！', 'success');
+                    usernameInput.value = '';
+                    usernameInput.placeholder = newName;
+                } else {
+                    AuthManager.showToast(result.message || '更新失敗', 'danger');
+                }
+            });
         });
 
-        // 票券統計：未使用 / 已使用 / 累計消費
-        function loadTicketStats(userId) {
-            const bookings = DataAPI.read(DataAPI.STORAGE_KEYS.BOOKINGS).filter(b => b.userId === userId);
-            const usedTickets = DataAPI.read(DataAPI.STORAGE_KEYS.USED_TICKETS).filter(t => t.userId === userId);
-            const transactions = DataAPI.read(DataAPI.STORAGE_KEYS.TRANSACTIONS).filter(t => t.userId === userId);
-
-            const unusedCount = bookings.reduce((sum, booking) => {
-                const statuses = booking.seatStatuses || (booking.seats || []).map(() => 'unused');
-                return sum + statuses.filter(s => s === 'unused' || s === 'using').length;
-            }, 0);
-
-            const spent = transactions
-                .filter(t => t.amount < 0)
-                .reduce((sum, t) => sum + Math.abs(t.amount), 0);
-
-            document.getElementById('stat-unused').textContent = unusedCount;
-            document.getElementById('stat-used').textContent = usedTickets.length;
-            document.getElementById('stat-spent').textContent = spent;
+        // 票券統計
+        async function loadTicketStats() {
+            try {
+                const stats = await DataAPI.getTicketStats();
+                document.getElementById('stat-unused').textContent = stats.activeTickets;
+                document.getElementById('stat-used').textContent = stats.usedTickets;
+                document.getElementById('stat-spent').textContent = stats.totalSpent;
+            } catch (error) {
+                console.error('載入票券統計失敗:', error);
+            }
         }
 
-        // 載入消費紀錄
-        function loadTransactions() {
-            const transactions = DataAPI.read(DataAPI.STORAGE_KEYS.TRANSACTIONS);
-            const userInfo = DataAPI.read(DataAPI.STORAGE_KEYS.SESSION, {});
-
-            // 過濾當前用戶的交易
-            const userTransactions = transactions.filter(t => t.userId === userInfo.id);
-
+        // 消費紀錄
+        async function loadTransactions() {
             const tbody = document.getElementById('transaction-list');
             const noTransactions = document.getElementById('no-transactions');
 
-            if (userTransactions.length === 0) {
+            let transactions = [];
+            try {
+                transactions = await DataAPI.getTransactions();
+            } catch (error) {
+                console.error('載入消費紀錄失敗:', error);
+            }
+
+            if (transactions.length === 0) {
                 tbody.innerHTML = '';
                 noTransactions.style.display = 'block';
                 return;
@@ -266,15 +252,12 @@
 
             noTransactions.style.display = 'none';
 
-            // 按時間倒序排列
-            userTransactions.sort((a, b) => b.id - a.id);
-
-            tbody.innerHTML = userTransactions.map((t, index) => `
+            tbody.innerHTML = transactions.map((t, index) => `
                 <tr>
                     <td>${index + 1}</td>
                     <td>
                         <span class="badge ${t.amount > 0 ? 'bg-success' : 'bg-warning'}">
-                            ${escapeHtml(t.type.split(' - ')[0])}
+                            ${escapeHtml(t.type)}
                         </span>
                     </td>
                     <td class="small">${escapeHtml(t.movieTitle) || '-'}</td>
@@ -282,7 +265,7 @@
                     <td class="${t.amount > 0 ? 'text-success' : 'text-danger'} fw-bold">
                         ${t.amount > 0 ? '+' : ''}$${t.amount}
                     </td>
-                    <td class="text-muted small">${escapeHtml(t.date)}</td>
+                    <td class="text-muted small">${escapeHtml(t.createdAt)}</td>
                 </tr>
             `).join('');
         }

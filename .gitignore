@@ -1,3 +1,9 @@
+# 相依套件
+node_modules/
+
+# SQLite 資料庫（執行時自動建立，不進版控）
+server/data/
+
 # 作業系統
 .DS_Store
 Thumbs.db
@@ -11,4 +17,3 @@ desktop.ini
 
 # 日誌與暫存
 *.log
-node_modules/

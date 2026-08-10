@@ -1,261 +1,166 @@
 /**
- * 登入 / 註冊 / 錢包（餘額）管理
+ * 登入 / 註冊 / 錢包
  *
- * 帳號資料一律透過 DataAPI 存取（localStorage.users），
- * 本模組只保存「目前登入的是誰」（localStorage.userInfo）。
+ * 帳號與餘額都在伺服器上，這裡只保管登入權杖並反映伺服器回傳的狀態。
+ * 前端不再有任何「自己算餘額」的邏輯——那是能被 DevTools 改掉的東西。
  */
 
 const AuthManager = {
     currentUser: null,
 
-    // 餘額寫回排隊，避免連續操作互相覆蓋
-    _persistQueue: Promise.resolve(),
+    // 其他模組可以 await 這個 Promise，確保拿得到正確的登入狀態
+    ready: null,
 
     init() {
-        this.loadUserFromStorage();
         this.renderAuthUI();
         this.bindEvents();
         this.updateNavbar();
-        this.syncBalanceFromStore();
+
+        this.ready = this.refreshUser().then(() => {
+            this.updateNavbar();
+            this.updateBalanceDisplay();
+        });
+
+        return this.ready;
     },
 
-    loadUserFromStorage() {
-        try {
-            const userInfo = localStorage.getItem('userInfo');
-            if (!userInfo) return;
-
-            this.currentUser = JSON.parse(userInfo);
-            if (this.currentUser && this.currentUser.balance === undefined) {
-                this.currentUser.balance = 0;
-                this.saveUserToStorage();
-            }
-        } catch (error) {
-            console.warn('登入狀態毀損，已登出', error);
-            localStorage.removeItem('userInfo');
+    /**
+     * 向伺服器確認目前登入者。權杖失效時會自動登出。
+     */
+    async refreshUser() {
+        if (!DataAPI.getToken()) {
             this.currentUser = null;
+            return null;
         }
-    },
-
-    saveUserToStorage() {
-        if (this.currentUser) {
-            localStorage.setItem('userInfo', JSON.stringify(this.currentUser));
-        }
-    },
-
-    /**
-     * 以帳號資料庫的餘額為準（例如在別的分頁儲值過）
-     */
-    async syncBalanceFromStore() {
-        if (!this.isLoggedIn() || typeof DataAPI === 'undefined') return;
 
         try {
-            const users = await DataAPI.getUsers();
-            const stored = users.find(u => u.id === this.currentUser.id);
-            if (stored && stored.balance !== this.currentUser.balance) {
-                this.currentUser.balance = stored.balance;
-                this.saveUserToStorage();
-                this.updateBalanceDisplay();
-                this.updateNavbar();
-            }
+            const { user } = await DataAPI.getMe();
+            this.currentUser = user;
         } catch (error) {
-            console.warn('同步餘額失敗:', error);
+            if (error.status === 401) {
+                this.currentUser = null;
+            } else {
+                console.error('無法取得使用者資料:', error);
+            }
         }
-    },
 
-    /**
-     * 把目前使用者的變更寫回帳號資料庫，讓下次登入仍然存在
-     * @param {Object} changes
-     */
-    persist(changes) {
-        if (!this.currentUser || typeof DataAPI === 'undefined') return;
-
-        const userId = this.currentUser.id;
-        this._persistQueue = this._persistQueue
-            .then(() => DataAPI.updateUser(userId, changes))
-            .catch(error => console.error('寫回帳號資料失敗:', error));
+        return this.currentUser;
     },
 
     isLoggedIn() {
         return this.currentUser !== null;
     },
 
-
     getUser() {
         return this.currentUser;
     },
-
 
     getBalance() {
         return this.currentUser?.balance || 0;
     },
 
-
-    updateBalance(amount) {
-        if (this.currentUser) {
-            this.currentUser.balance = amount;
-            this.saveUserToStorage();
-            this.persist({ balance: amount });
-            this.updateBalanceDisplay();
-        }
+    /**
+     * 以伺服器回傳的餘額為準更新畫面
+     * @param {number} balance
+     */
+    setBalance(balance) {
+        if (!this.currentUser) return;
+        this.currentUser.balance = balance;
+        this.updateBalanceDisplay();
+        this.updateNavbar();
     },
-
-
-    deposit(amount) {
-        if (this.currentUser && amount > 0) {
-            this.currentUser.balance += amount;
-            this.saveUserToStorage();
-            this.persist({ balance: this.currentUser.balance });
-            this.addTransaction('儲值', amount);
-            this.updateBalanceDisplay();
-            this.updateNavbar();
-            return true;
-        }
-        return false;
-    },
-
-
-    deduct(amount, description = '購票', details = {}) {
-        if (this.currentUser && this.currentUser.balance >= amount) {
-            this.currentUser.balance -= amount;
-            this.saveUserToStorage();
-            this.persist({ balance: this.currentUser.balance });
-            this.addTransaction(description, -amount, details);
-            this.updateBalanceDisplay();
-            this.updateNavbar();
-            return true;
-        }
-        return false;
-    },
-
-    addTransaction(type, amount, details = {}) {
-        const transactions = JSON.parse(localStorage.getItem('transactions') || '[]');
-        transactions.push({
-            id: Date.now(),
-            type: type,
-            amount: amount,
-            date: new Date().toLocaleString('zh-TW'),
-            userId: this.currentUser?.id,
-            movieTitle: details.movieTitle || '',
-            movieDate: details.movieDate || '',
-            showtime: details.showtime || ''
-        });
-        localStorage.setItem('transactions', JSON.stringify(transactions));
-    },
-
-
-    getTransactions() {
-        const transactions = JSON.parse(localStorage.getItem('transactions') || '[]');
-        return transactions.filter(t => t.userId === this.currentUser?.id);
-    },
-
 
     updateBalanceDisplay() {
         const balance = this.getBalance();
         document.querySelectorAll('.user-balance').forEach(el => {
             el.textContent = balance;
         });
-        // 讓結帳側邊欄等模組即時反應餘額變化，不需輪詢
         document.dispatchEvent(new CustomEvent('balance:changed', { detail: { balance } }));
     },
 
-    /**
-     * 登入
-     * @returns {Promise<{success:boolean, message?:string}>}
-     */
+    /* -------------------------------------------------------------- *
+     * 登入 / 註冊 / 登出
+     * -------------------------------------------------------------- */
+
     async login(username, password) {
         try {
-            const user = await DataAPI.loginUser(username, password);
-            if (!user) {
-                return { success: false, message: '用戶名或密碼錯誤' };
-            }
-
-            this.currentUser = {
-                id: user.id,
-                username: user.username,
-                email: user.email,
-                balance: user.balance || 0,
-                token: 'mock-token-' + Date.now()
-            };
-            this.saveUserToStorage();
+            const { user, token } = await DataAPI.login(username, password);
+            DataAPI.setToken(token);
+            this.currentUser = user;
             return { success: true };
         } catch (error) {
-            console.error('登入失敗:', error);
-            return { success: false, message: '登入時發生錯誤，請稍後再試' };
+            return { success: false, message: error.message };
+        }
+    },
+
+    async register(username, email, password) {
+        try {
+            await DataAPI.register(username, password, email);
+            return { success: true };
+        } catch (error) {
+            return { success: false, message: error.message };
         }
     },
 
     /**
-     * 模擬 Google 登入：固定綁在同一組展示帳號上，餘額才不會每次歸零
-     * @returns {Promise<{success:boolean, message?:string}>}
+     * 模擬 Google 登入：固定綁在同一組展示帳號，帳號不存在就先建立
      */
     async googleLogin() {
-        const GOOGLE_DEMO = {
+        const DEMO = {
             username: 'Google 用戶',
             email: 'google.user@gmail.com',
             password: 'google-oauth-demo'
         };
 
-        try {
-            let user = await DataAPI.loginUser(GOOGLE_DEMO.username, GOOGLE_DEMO.password);
+        let result = await this.login(DEMO.username, DEMO.password);
+        if (result.success) return result;
 
-            if (!user) {
-                const result = await DataAPI.registerUser(
-                    GOOGLE_DEMO.username, GOOGLE_DEMO.password, GOOGLE_DEMO.email
-                );
-                if (!result.success) {
-                    return { success: false, message: result.message };
-                }
-                user = result.user;
-            }
+        const created = await this.register(DEMO.username, DEMO.email, DEMO.password);
+        if (!created.success) return created;
 
-            this.currentUser = {
-                id: user.id,
-                username: user.username,
-                email: user.email,
-                balance: user.balance || 0,
-                token: 'google-mock-token-' + Date.now(),
-                isGoogleUser: true
-            };
-            this.saveUserToStorage();
-            return { success: true };
-        } catch (error) {
-            console.error('Google 登入失敗:', error);
-            return { success: false, message: 'Google 登入時發生錯誤' };
-        }
+        return this.login(DEMO.username, DEMO.password);
     },
-
-    /**
-     * 註冊
-     * @returns {Promise<{success:boolean, message?:string}>}
-     */
-    async register(username, email, password) {
-        try {
-            return await DataAPI.registerUser(username, password, email);
-        } catch (error) {
-            console.error('註冊失敗:', error);
-            return { success: false, message: '註冊時發生錯誤，請稍後再試' };
-        }
-    },
-
 
     logout() {
+        DataAPI.setToken(null);
+        DataAPI.clearCache();
         this.currentUser = null;
-        localStorage.removeItem('userInfo');
         this.updateNavbar();
         window.location.reload();
     },
 
-
-    updateUsername(newUsername) {
+    async updateUsername(newUsername) {
         const name = (newUsername || '').trim();
-        if (!this.currentUser || !name) return false;
+        if (!name) return { success: false, message: '請輸入有效的名稱' };
 
-        this.currentUser.username = name;
-        this.saveUserToStorage();
-        this.persist({ username: name });
-        this.updateNavbar();
-        return true;
+        try {
+            const { user, token } = await DataAPI.updateUsername(name);
+            DataAPI.setToken(token);
+            this.currentUser = user;
+            this.updateNavbar();
+            return { success: true };
+        } catch (error) {
+            return { success: false, message: error.message };
+        }
     },
+
+    /* -------------------------------------------------------------- *
+     * 儲值
+     * -------------------------------------------------------------- */
+
+    async deposit(amount) {
+        try {
+            const { balance } = await DataAPI.deposit(amount);
+            this.setBalance(balance);
+            return { success: true, balance };
+        } catch (error) {
+            return { success: false, message: error.message };
+        }
+    },
+
+    /* -------------------------------------------------------------- *
+     * UI
+     * -------------------------------------------------------------- */
 
     renderAuthUI() {
         if (document.getElementById('authModal')) return;
@@ -266,19 +171,18 @@ const AuthManager = {
             <div class="modal-dialog modal-dialog-centered">
                 <div class="modal-content auth-modal-content">
                     <div class="modal-header border-0 pb-0">
-                        <button type="button" class="btn-close position-absolute mb-5" style="top: 15px; right: 15px;" 
+                        <button type="button" class="btn-close position-absolute mb-5" style="top: 15px; right: 15px;"
                             data-bs-dismiss="modal" aria-label="Close"></button>
                         <ul class="nav nav-pills auth-tabs w-100 mt-4" id="authTabs" role="tablist">
                             <li class="nav-item flex-fill" role="presentation">
-                                <button class="nav-link active w-100" id="login-tab" data-bs-toggle="pill" 
+                                <button class="nav-link active w-100" id="login-tab" data-bs-toggle="pill"
                                     data-bs-target="#login-panel" type="button" role="tab">登入</button>
                             </li>
                             <li class="nav-item flex-fill" role="presentation">
-                                <button class="nav-link w-100" id="register-tab" data-bs-toggle="pill" 
+                                <button class="nav-link w-100" id="register-tab" data-bs-toggle="pill"
                                     data-bs-target="#register-panel" type="button" role="tab">註冊</button>
                             </li>
                         </ul>
-
                     </div>
 
                     <div class="modal-body pt-4">
@@ -288,13 +192,13 @@ const AuthManager = {
                                 <form id="modal-login-form">
                                     <div class="mb-3">
                                         <label for="login-username" class="form-label">用戶名</label>
-                                        <input type="text" class="form-control" id="login-username" 
-                                            placeholder="請輸入用戶名" required>
+                                        <input type="text" class="form-control" id="login-username"
+                                            placeholder="請輸入用戶名" autocomplete="username" required>
                                     </div>
                                     <div class="mb-3">
                                         <label for="login-password" class="form-label">密碼</label>
-                                        <input type="password" class="form-control" id="login-password" 
-                                            placeholder="請輸入密碼" required>
+                                        <input type="password" class="form-control" id="login-password"
+                                            placeholder="請輸入密碼" autocomplete="current-password" required>
                                     </div>
                                     <div class="mb-3 form-check">
                                         <input type="checkbox" class="form-check-input" id="remember-me">
@@ -324,23 +228,23 @@ const AuthManager = {
                                 <form id="modal-register-form">
                                     <div class="mb-3">
                                         <label for="register-username" class="form-label">用戶名</label>
-                                        <input type="text" class="form-control" id="register-username" 
-                                            placeholder="請輸入用戶名" required>
+                                        <input type="text" class="form-control" id="register-username"
+                                            placeholder="請輸入用戶名" autocomplete="username" required>
                                     </div>
                                     <div class="mb-3">
                                         <label for="register-email" class="form-label">電子郵件</label>
-                                        <input type="email" class="form-control" id="register-email" 
-                                            placeholder="請輸入電子郵件" required>
+                                        <input type="email" class="form-control" id="register-email"
+                                            placeholder="請輸入電子郵件" autocomplete="email" required>
                                     </div>
                                     <div class="mb-3">
                                         <label for="register-password" class="form-label">密碼</label>
-                                        <input type="password" class="form-control" id="register-password" 
-                                            placeholder="請輸入密碼" required>
+                                        <input type="password" class="form-control" id="register-password"
+                                            placeholder="至少 6 個字元" autocomplete="new-password" required>
                                     </div>
                                     <div class="mb-3">
                                         <label for="register-confirm-password" class="form-label">確認密碼</label>
-                                        <input type="password" class="form-control" id="register-confirm-password" 
-                                            placeholder="再次輸入密碼" required>
+                                        <input type="password" class="form-control" id="register-confirm-password"
+                                            placeholder="再次輸入密碼" autocomplete="new-password" required>
                                     </div>
                                     <div class="d-grid gap-2">
                                         <button type="submit" class="btn btn-success btn-lg">立即註冊</button>
@@ -372,7 +276,7 @@ const AuthManager = {
             <div class="modal-dialog modal-dialog-centered">
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h5 class="modal-title"> 儲值</h5>
+                        <h5 class="modal-title">儲值</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
@@ -382,7 +286,7 @@ const AuthManager = {
                         </div>
                         <div class="mb-3">
                             <label for="deposit-amount" class="form-label">儲值金額</label>
-                            <div class="d-flex gap-2 mb-2">
+                            <div class="d-flex gap-2 mb-2 flex-wrap">
                                 <button type="button" class="btn btn-outline-primary quick-deposit" data-amount="100">$100</button>
                                 <button type="button" class="btn btn-outline-primary quick-deposit" data-amount="300">$300</button>
                                 <button type="button" class="btn btn-outline-primary quick-deposit" data-amount="500">$500</button>
@@ -408,13 +312,12 @@ const AuthManager = {
         if (loginForm) {
             loginForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
-                const username = document.getElementById('login-username').value;
+                const username = document.getElementById('login-username').value.trim();
                 const password = document.getElementById('login-password').value;
 
                 const result = await this.login(username, password);
                 if (result.success) {
-                    const modal = bootstrap.Modal.getInstance(document.getElementById('authModal'));
-                    modal.hide();
+                    bootstrap.Modal.getInstance(document.getElementById('authModal'))?.hide();
                     this.showToast('登入成功！', 'success');
                     this.updateNavbar();
                     setTimeout(() => window.location.reload(), 500);
@@ -437,7 +340,6 @@ const AuthManager = {
                     this.showToast('請填寫用戶名與密碼', 'warning');
                     return;
                 }
-
                 if (password !== confirmPassword) {
                     this.showToast('密碼不一致', 'danger');
                     return;
@@ -454,37 +356,22 @@ const AuthManager = {
             });
         }
 
-        const googleLoginBtn = document.getElementById('google-login-btn');
-        if (googleLoginBtn) {
-            googleLoginBtn.addEventListener('click', async () => {
-                const result = await this.googleLogin();
-                if (result.success) {
-                    const modal = bootstrap.Modal.getInstance(document.getElementById('authModal'));
-                    modal.hide();
-                    this.showToast('Google 登入成功！', 'success');
-                    this.updateNavbar();
-                    setTimeout(() => window.location.reload(), 500);
-                } else {
-                    this.showToast(result.message || 'Google 登入失敗', 'danger');
-                }
-            });
-        }
+        const googleHandler = async (successMessage) => {
+            const result = await this.googleLogin();
+            if (result.success) {
+                bootstrap.Modal.getInstance(document.getElementById('authModal'))?.hide();
+                this.showToast(successMessage, 'success');
+                this.updateNavbar();
+                setTimeout(() => window.location.reload(), 500);
+            } else {
+                this.showToast(result.message || 'Google 登入失敗', 'danger');
+            }
+        };
 
-        const googleRegisterBtn = document.getElementById('google-register-btn');
-        if (googleRegisterBtn) {
-            googleRegisterBtn.addEventListener('click', async () => {
-                const result = await this.googleLogin();
-                if (result.success) {
-                    const modal = bootstrap.Modal.getInstance(document.getElementById('authModal'));
-                    modal.hide();
-                    this.showToast('Google 帳戶已連結！', 'success');
-                    this.updateNavbar();
-                    setTimeout(() => window.location.reload(), 500);
-                } else {
-                    this.showToast(result.message || 'Google 登入失敗', 'danger');
-                }
-            });
-        }
+        document.getElementById('google-login-btn')
+            ?.addEventListener('click', () => googleHandler('Google 登入成功！'));
+        document.getElementById('google-register-btn')
+            ?.addEventListener('click', () => googleHandler('Google 帳戶已連結！'));
 
         document.querySelectorAll('.quick-deposit').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -494,17 +381,23 @@ const AuthManager = {
 
         const confirmDepositBtn = document.getElementById('confirm-deposit-btn');
         if (confirmDepositBtn) {
-            confirmDepositBtn.addEventListener('click', () => {
+            confirmDepositBtn.addEventListener('click', async () => {
                 const amount = parseInt(document.getElementById('deposit-amount').value);
-                if (amount && amount > 0) {
-                    if (this.deposit(amount)) {
-                        const modal = bootstrap.Modal.getInstance(document.getElementById('depositModal'));
-                        modal.hide();
-                        this.showToast(`成功儲值 NT$ ${amount}`, 'success');
-                        document.getElementById('deposit-amount').value = '';
-                    }
-                } else {
+                if (!amount || amount <= 0) {
                     this.showToast('請輸入有效金額', 'warning');
+                    return;
+                }
+
+                confirmDepositBtn.disabled = true;
+                const result = await this.deposit(amount);
+                confirmDepositBtn.disabled = false;
+
+                if (result.success) {
+                    bootstrap.Modal.getInstance(document.getElementById('depositModal'))?.hide();
+                    this.showToast(`成功儲值 NT$ ${amount}`, 'success');
+                    document.getElementById('deposit-amount').value = '';
+                } else {
+                    this.showToast(result.message || '儲值失敗', 'danger');
                 }
             });
         }
@@ -513,36 +406,31 @@ const AuthManager = {
             if (e.target.id === 'logout-btn' || e.target.closest('#logout-btn')) {
                 e.preventDefault();
                 this.logout();
+                return;
             }
-        });
 
-        document.addEventListener('click', (e) => {
             if (e.target.id === 'nav-login-btn' || e.target.closest('#nav-login-btn')) {
                 e.preventDefault();
-                const authModal = new bootstrap.Modal(document.getElementById('authModal'));
-                authModal.show();
+                new bootstrap.Modal(document.getElementById('authModal')).show();
+                return;
             }
-        });
 
-        document.addEventListener('click', (e) => {
             if (e.target.id === 'nav-register-btn' || e.target.closest('#nav-register-btn')) {
                 e.preventDefault();
-                const authModal = new bootstrap.Modal(document.getElementById('authModal'));
-                authModal.show();
+                new bootstrap.Modal(document.getElementById('authModal')).show();
                 setTimeout(() => document.getElementById('register-tab').click(), 100);
+                return;
             }
-        });
 
-        document.addEventListener('click', (e) => {
-            if (e.target.id === 'nav-deposit-btn' || e.target.closest('#nav-deposit-btn')) {
+            if (e.target.id === 'nav-deposit-btn' || e.target.closest('#nav-deposit-btn') ||
+                e.target.id === 'nav-deposit-btn-2' || e.target.closest('#nav-deposit-btn-2')) {
                 e.preventDefault();
                 if (!this.isLoggedIn()) {
                     this.showToast('請先登入', 'warning');
                     return;
                 }
                 this.updateBalanceDisplay();
-                const depositModal = new bootstrap.Modal(document.getElementById('depositModal'));
-                depositModal.show();
+                new bootstrap.Modal(document.getElementById('depositModal')).show();
             }
         });
     },
@@ -574,16 +462,6 @@ const AuthManager = {
                     </ul>
                 </li>
             `;
-
-            const depositBtn2 = document.getElementById('nav-deposit-btn-2');
-            if (depositBtn2) {
-                depositBtn2.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    this.updateBalanceDisplay();
-                    const depositModal = new bootstrap.Modal(document.getElementById('depositModal'));
-                    depositModal.show();
-                });
-            }
         } else {
             navContainer.innerHTML = `
                 <li class="nav-item">
@@ -602,28 +480,22 @@ const AuthManager = {
             toastContainer = document.createElement('div');
             toastContainer.id = 'toast-container';
             toastContainer.className = 'toast-container position-fixed top-0 end-0 p-3';
-            toastContainer.style.zIndex = '9999';
             document.body.appendChild(toastContainer);
         }
 
         const toastId = 'toast-' + Date.now();
-        const toastHTML = `
+        toastContainer.insertAdjacentHTML('beforeend', `
             <div id="${toastId}" class="toast align-items-center text-white bg-${type} border-0" role="alert">
                 <div class="d-flex">
-                    <div class="toast-body">${message}</div>
+                    <div class="toast-body">${escapeHtml(message)}</div>
                     <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
                 </div>
             </div>
-        `;
+        `);
 
-        toastContainer.insertAdjacentHTML('beforeend', toastHTML);
         const toastElement = document.getElementById(toastId);
-        const toast = new bootstrap.Toast(toastElement, { delay: 3000 });
-        toast.show();
-
-        toastElement.addEventListener('hidden.bs.toast', () => {
-            toastElement.remove();
-        });
+        new bootstrap.Toast(toastElement, { delay: 3000 }).show();
+        toastElement.addEventListener('hidden.bs.toast', () => toastElement.remove());
     }
 };
 

@@ -1,58 +1,25 @@
+'use strict';
+
 /**
- * FakeTheater 端對端測試
+ * 端對端測試（瀏覽器）
  *
- * 會自己起一個靜態伺服器，用無頭 Chromium 跑完整流程：
- * 瀏覽 → 登入 → 訂票 → 付款 → 票夾 → 個人專區 → 帳號相關驗證。
+ * 會啟動真正的 Express 伺服器（搭配一個全新的暫存資料庫），
+ * 再用無頭 Chromium 走完整流程：瀏覽 → 登入 → 選位 → 保留 → 付款 → 票夾 → 個人專區。
  *
- * 執行方式：
- *   npm install
- *   npm test
+ * 執行方式：npm run test:e2e
  */
 
-const http = require('http');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+
+const TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ft-e2e-'));
+process.env.DB_PATH = path.join(TMP_DIR, 'e2e.db');
+process.env.JWT_SECRET = 'e2e-secret';
+
 const { chromium } = require('playwright');
-
-const ROOT = path.join(__dirname, '..', 'FakeTheater');
-const PORT = 8765;
-const BASE = `http://127.0.0.1:${PORT}`;
-
-const MIME = {
-    '.html': 'text/html; charset=utf-8',
-    '.js': 'text/javascript; charset=utf-8',
-    '.css': 'text/css; charset=utf-8',
-    '.json': 'application/json; charset=utf-8',
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.svg': 'image/svg+xml',
-    '.map': 'application/json'
-};
-
-function startServer() {
-    const server = http.createServer((req, res) => {
-        const urlPath = decodeURIComponent(req.url.split('?')[0]);
-        const filePath = path.join(ROOT, urlPath === '/' ? 'index.html' : urlPath);
-
-        if (!filePath.startsWith(ROOT)) {
-            res.writeHead(403).end();
-            return;
-        }
-
-        fs.readFile(filePath, (err, data) => {
-            if (err) {
-                res.writeHead(404).end('Not found');
-                return;
-            }
-            res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream' });
-            res.end(data);
-        });
-    });
-
-    return new Promise(resolve => server.listen(PORT, '127.0.0.1', () => resolve(server)));
-}
-
-/* ------------------------------------------------------------------ */
+const { createApp, initDatabase } = require('../server/app');
+const { closeDb } = require('../server/db');
 
 const problems = [];
 let passed = 0;
@@ -67,11 +34,36 @@ function check(name, condition, detail = '') {
     }
 }
 
+// 測試會刻意觸發這些回應（密碼錯誤、重複註冊、座位衝突、未登入），
+// 瀏覽器一律會記成 console error，但它們是預期中的行為而非 bug
+const EXPECTED_HTTP_ERRORS = /status of (400|401|409)/;
+
 function watchErrors(page, sink) {
     page.on('pageerror', e => sink.push(`PAGEERROR ${e.message}`));
     page.on('console', m => {
-        if (m.type() === 'error' && !m.text().includes('favicon')) sink.push(m.text());
+        if (m.type() !== 'error') return;
+        const text = m.text();
+        if (text.includes('favicon') || EXPECTED_HTTP_ERRORS.test(text)) return;
+        sink.push(text);
     });
+}
+
+let BASE = '';
+
+/* ------------------------------------------------------------------ *
+ * 共用操作
+ * ------------------------------------------------------------------ */
+
+/**
+ * 登入／登出成功後 auth.js 會延遲重新載入頁面。
+ * 先在 window 上做記號，記號消失就代表 reload 真的完成了，
+ * 否則後續操作會打在即將被銷毀的 DOM 上。
+ */
+async function actAndWaitReload(page, action) {
+    await page.evaluate(() => { window.__pending = true; });
+    await action();
+    await page.waitForFunction(() => !window.__pending, null, { timeout: 10000 });
+    await page.waitForLoadState('domcontentloaded');
 }
 
 async function login(page, username, password) {
@@ -79,24 +71,52 @@ async function login(page, username, password) {
     await page.waitForSelector('#authModal.show');
     await page.fill('#login-username', username);
     await page.fill('#login-password', password);
-    await page.click('#modal-login-form button[type=submit]');
-    await page.waitForTimeout(1200);
+
+    await actAndWaitReload(page, () => page.click('#modal-login-form button[type=submit]'));
+    await page.waitForSelector('#navbarDropdown', { timeout: 8000 });
 }
 
-async function pickShowtime(page, movieId) {
+async function logout(page) {
+    await page.click('#navbarDropdown');
+    await actAndWaitReload(page, () => page.click('#logout-btn'));
+    await page.waitForSelector('#nav-login-btn', { timeout: 8000 });
+}
+
+async function register(page, username, email, password) {
+    await page.click('#nav-register-btn');
+    await page.waitForSelector('#authModal.show');
+    await page.waitForTimeout(300);
+    await page.fill('#register-username', username);
+    await page.fill('#register-email', email);
+    await page.fill('#register-password', password);
+    await page.fill('#register-confirm-password', password);
+    await page.click('#modal-register-form button[type=submit]');
+    await page.waitForTimeout(600);
+}
+
+/**
+ * 在訂票頁選好電影／日期／場次，等座位圖出現
+ * @returns {Promise<string>} 選到的場次文字
+ */
+async function pickShowtime(page, movieId, dateIndex = 1) {
     await page.selectOption('#movie-select', movieId);
     await page.waitForFunction(() => !document.getElementById('date-select').disabled);
-    await page.selectOption('#date-select', { index: 1 });
+    await page.selectOption('#date-select', { index: dateIndex });
     await page.waitForFunction(() => !document.getElementById('showtime-select').disabled);
     await page.selectOption('#showtime-select', { index: 1 });
-    await page.waitForSelector('.seat.available');
+    await page.waitForSelector('.seat.available', { timeout: 8000 });
+    return page.locator('#showtime-select').inputValue();
 }
 
-/* ------------------------------------------------------------------
-   情境一：瀏覽 → 訂票 → 票夾
-   ------------------------------------------------------------------ */
+async function balanceOf(page) {
+    return parseInt(await page.locator('.nav-link .user-balance').first().textContent());
+}
 
-async function testBookingFlow(browser, errors) {
+/* ------------------------------------------------------------------ *
+ * 主要流程
+ * ------------------------------------------------------------------ */
+
+async function testMainFlow(browser, errors) {
     const page = await (await browser.newContext()).newPage();
     watchErrors(page, errors);
 
@@ -115,6 +135,7 @@ async function testBookingFlow(browser, errors) {
     await page.goto(`${BASE}/showtime.html`);
     await page.waitForSelector('.showtime-card');
     check('場次查詢有結果', await page.locator('.showtime-card').count() > 0);
+    check('時段按鈕以時間為主', await page.locator('.showtime-slot .slot-time').count() > 0);
 
     await page.goto(`${BASE}/schedule.html`);
     await page.waitForSelector('.schedule-card');
@@ -131,14 +152,14 @@ async function testBookingFlow(browser, errors) {
     await page.goto(`${BASE}/booking.html`);
     await login(page, 'demo', 'demo123');
     check('導覽列顯示帳號', (await page.locator('#navbarDropdown').textContent()).trim() === 'demo');
-    check('餘額顯示 2000', (await page.locator('.nav-link .user-balance').first().textContent()).trim() === '2000');
+    check('餘額來自伺服器（2000）', await balanceOf(page) === 2000);
 
-    console.log('\n# 訂票');
+    console.log('\n# 選位與座位保留');
     await pickShowtime(page, '1');
     check('座位圖已產生', await page.locator('#seat-map .seat').count() > 0);
 
     const firstSeat = page.locator('#seat-map .seat.available').first();
-    const seatLabel = await firstSeat.getAttribute('title');
+    const seatLabel = (await firstSeat.getAttribute('title')).replace(/（.*/, '');
     await firstSeat.click();
     await page.locator('#seat-map .seat.available').nth(3).click();
     check('已選 2 個座位', (await page.locator('#selected-seats-count').textContent()) === '2');
@@ -146,71 +167,104 @@ async function testBookingFlow(browser, errors) {
     check('總金額 > 0', total > 0, `total=${total}`);
 
     await page.click('#confirm-booking');
-    await page.waitForSelector('#checkoutSidebar.open');
+    await page.waitForSelector('#checkoutSidebar.open', { timeout: 8000 });
+    check('結帳側邊欄開啟', true);
+    check('顯示座位保留倒數',
+        /^\d{2}:\d{2}$/.test((await page.locator('#checkout-lock-remaining').textContent()).trim()),
+        await page.locator('#checkout-lock-remaining').textContent());
     check('結帳票數 = 2', (await page.locator('#checkout-ticket-count').textContent()) === '2');
     check('結帳總計相符', (await page.locator('#checkout-total-amount').textContent()) === String(total));
-    check('顯示付款後餘額',
-        (await page.locator('#checkout-remaining-balance').textContent()).includes(String(2000 - total)));
 
+    console.log('\n# 付款');
     await page.click('#checkout-pay-btn');
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(1500);
     check('付款後側邊欄關閉', await page.locator('#checkoutSidebar.open').count() === 0);
-    check('餘額已扣款',
-        parseInt(await page.locator('.nav-link .user-balance').first().textContent()) === 2000 - total);
+    check('餘額已由伺服器扣款', await balanceOf(page) === 2000 - total, `balance=${await balanceOf(page)}`);
     check('剛買的位子變成已售出', await page.locator('#seat-map .seat.occupied').count() >= 2);
 
     console.log('\n# 我的票夾');
     await page.click('#wallet-toggle-btn');
     await page.waitForSelector('#walletSidebar.open');
+    await page.waitForSelector('#unused-tickets-list .ticket-card', { timeout: 5000 });
     check('票夾有 2 張票', await page.locator('#unused-tickets-list .ticket-card').count() === 2);
     check('票券顯示座位標籤',
         (await page.locator('#unused-tickets-list').textContent()).includes(seatLabel), seatLabel);
     await page.click('.use-ticket-btn');
-    await page.waitForTimeout(400);
+    await page.waitForSelector('.ticket-card.using', { timeout: 5000 });
     check('使用後出現倒數', await page.locator('.ticket-card.using').count() === 1);
 
-    console.log('\n# 餘額持久化');
+    console.log('\n# 重新登入');
     await page.keyboard.press('Escape');
-    await page.click('#navbarDropdown');
-    await page.click('#logout-btn');
-    await page.waitForTimeout(900);
+    await logout(page);
+    check('登出後回到未登入狀態', await page.locator('#nav-login-btn').count() === 1);
     await login(page, 'demo', 'demo123');
-    check('重新登入後餘額保留',
-        parseInt(await page.locator('.nav-link .user-balance').first().textContent()) === 2000 - total);
+    check('重新登入後餘額保留', await balanceOf(page) === 2000 - total);
 
     console.log('\n# 個人專區');
     await page.goto(`${BASE}/profile.html`);
-    await page.waitForTimeout(600);
+    await page.waitForSelector('#transaction-list tr', { timeout: 8000 });
     check('消費紀錄有資料', await page.locator('#transaction-list tr').count() >= 1);
     check('個人專區餘額正確', parseInt(await page.locator('#current_amount').textContent()) === 2000 - total);
     check('票券統計：可使用 2 張', (await page.locator('#stat-unused').textContent()) === '2');
     check('票券統計：累計消費正確', (await page.locator('#stat-spent').textContent()) === String(total));
 
-    console.log('\n# 註冊新帳號');
-    await page.goto(`${BASE}/index.html`);
-    await page.evaluate(() => localStorage.removeItem('userInfo'));
-    await page.reload();
-    await page.click('#nav-register-btn');
-    await page.waitForSelector('#authModal.show');
-    await page.waitForTimeout(300);
-    await page.fill('#register-username', 'tester');
-    await page.fill('#register-email', 'tester@example.com');
-    await page.fill('#register-password', 'pass1234');
-    await page.fill('#register-confirm-password', 'pass1234');
-    await page.click('#modal-register-form button[type=submit]');
-    await page.waitForTimeout(600);
-    await page.fill('#login-password', 'pass1234');
-    await page.click('#modal-login-form button[type=submit]');
-    await page.waitForTimeout(1200);
-    check('新帳號可登入', (await page.locator('#navbarDropdown').textContent()).trim() === 'tester');
-    await page.click('#wallet-toggle-btn');
-    await page.waitForSelector('#walletSidebar.open');
-    check('新帳號看不到別人的票', await page.locator('#unused-tickets-list .ticket-card').count() === 0);
+    return { total };
 }
 
-/* ------------------------------------------------------------------
-   情境二：帳號、儲值、驗證
-   ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *
+ * 跨使用者：座位保留在別人畫面上要看得到
+ * ------------------------------------------------------------------ */
+
+async function testSeatLockAcrossUsers(browser, errors) {
+    console.log('\n# 跨使用者：A 保留座位，B 應該選不到');
+
+    const pageA = await (await browser.newContext()).newPage();
+    const pageB = await (await browser.newContext()).newPage();
+    watchErrors(pageA, errors);
+    watchErrors(pageB, errors);
+
+    await pageA.goto(`${BASE}/booking.html`);
+    await login(pageA, 'johndoe', 'password123');
+    await pickShowtime(pageA, '2');
+
+    // A 選兩個位子並進入結帳（此時伺服器已保留座位）
+    const seatA = pageA.locator('#seat-map .seat.available').first();
+    const seatKey = await seatA.evaluate(el => `${el.dataset.row}-${el.dataset.col}`);
+    await seatA.click();
+    await pageA.click('#confirm-booking');
+    await pageA.waitForSelector('#checkoutSidebar.open', { timeout: 8000 });
+    check('A 成功保留座位', true);
+
+    // B 打開同一個場次
+    await pageB.goto(`${BASE}/booking.html`);
+    await login(pageB, 'janedoe', 'securepass');
+    await pickShowtime(pageB, '2');
+
+    const stateForB = await pageB.locator(
+        `#seat-map .seat[data-row="${seatKey.split('-')[0]}"][data-col="${seatKey.split('-')[1]}"]`
+    ).getAttribute('class');
+    check('B 看到該座位已被鎖定', stateForB.includes('occupied'), stateForB);
+
+    const titleForB = await pageB.locator(
+        `#seat-map .seat[data-row="${seatKey.split('-')[0]}"][data-col="${seatKey.split('-')[1]}"]`
+    ).getAttribute('title');
+    check('B 看到「他人選位中」提示', titleForB.includes('他人選位中'), titleForB);
+
+    // A 關閉結帳 → 座位應該釋放
+    await pageA.click('#checkout-close-btn');
+    await pageA.waitForTimeout(800);
+
+    await pageB.reload();
+    await pickShowtime(pageB, '2');
+    const stateAfterRelease = await pageB.locator(
+        `#seat-map .seat[data-row="${seatKey.split('-')[0]}"][data-col="${seatKey.split('-')[1]}"]`
+    ).getAttribute('class');
+    check('A 放棄結帳後座位釋放給 B', stateAfterRelease.includes('available'), stateAfterRelease);
+}
+
+/* ------------------------------------------------------------------ *
+ * 帳號、儲值、餘額不足
+ * ------------------------------------------------------------------ */
 
 async function testAccountFlow(browser, errors) {
     const page = await (await browser.newContext()).newPage();
@@ -218,94 +272,103 @@ async function testAccountFlow(browser, errors) {
 
     console.log('\n# 登入驗證');
     await page.goto(`${BASE}/index.html`);
-    await login(page, 'demo', 'wrongpass');
+    await page.click('#nav-login-btn');
+    await page.waitForSelector('#authModal.show');
+    await page.fill('#login-username', 'demo');
+    await page.fill('#login-password', 'wrongpass');
+    await page.click('#modal-login-form button[type=submit]');
+    await page.waitForSelector('.toast-body', { timeout: 5000 });
     check('錯誤密碼不會登入', await page.locator('#nav-login-btn').count() === 1);
     check('顯示錯誤提示', (await page.locator('.toast-body').first().textContent()).includes('錯誤'));
     await page.keyboard.press('Escape');
     await page.waitForTimeout(400);
 
-    console.log('\n# 儲值');
-    await login(page, 'janedoe', 'securepass');
-    check('登入 janedoe，餘額 500',
-        (await page.locator('.nav-link .user-balance').first().textContent()) === '500');
-    await page.click('#nav-deposit-btn');
-    await page.waitForSelector('#depositModal.show');
-    await page.click('.quick-deposit[data-amount="500"]');
-    check('快選金額填入', (await page.inputValue('#deposit-amount')) === '500');
-    await page.click('#confirm-deposit-btn');
-    await page.waitForTimeout(600);
-    check('儲值後餘額 1000',
-        (await page.locator('.nav-link .user-balance').first().textContent()) === '1000');
+    console.log('\n# 註冊新帳號');
+    await register(page, 'tester', 'tester@example.com', 'pass1234');
+    await page.fill('#login-password', 'pass1234');
+    await actAndWaitReload(page, () => page.click('#modal-login-form button[type=submit]'));
+    await page.waitForSelector('#navbarDropdown', { timeout: 8000 });
+    check('新帳號可登入', (await page.locator('#navbarDropdown').textContent()).trim() === 'tester');
+    check('新帳號餘額 0', await balanceOf(page) === 0);
+
+    await page.click('#wallet-toggle-btn');
+    await page.waitForSelector('#walletSidebar.open');
+    await page.waitForTimeout(500);
+    check('新帳號看不到別人的票', await page.locator('#unused-tickets-list .ticket-card').count() === 0);
+    await page.keyboard.press('Escape');
 
     console.log('\n# 餘額不足');
     await page.goto(`${BASE}/booking.html`);
-    await page.evaluate(() => {
-        const u = JSON.parse(localStorage.getItem('userInfo'));
-        u.balance = 100;
-        localStorage.setItem('userInfo', JSON.stringify(u));
-        const users = JSON.parse(localStorage.getItem('users'));
-        users.find(x => x.id === u.id).balance = 100;
-        localStorage.setItem('users', JSON.stringify(users));
-    });
-    await page.reload();
-    await page.waitForTimeout(700);
-    await pickShowtime(page, '2');
+    await page.waitForSelector('#navbarDropdown', { timeout: 8000 });
+    await pickShowtime(page, '3');
     await page.locator('#seat-map .seat.available').first().click();
     await page.click('#confirm-booking');
-    await page.waitForSelector('#checkoutSidebar.open');
+    await page.waitForSelector('#checkoutSidebar.open', { timeout: 8000 });
     check('付款鍵被停用', await page.locator('#checkout-pay-btn').isDisabled());
     check('顯示餘額不足提示', await page.locator('#checkout-insufficient-alert').isVisible());
 
     console.log('\n# 側邊欄內儲值');
     await page.click('#checkout-deposit-btn');
     await page.waitForSelector('#depositModal.show');
-    await page.fill('#deposit-amount', '2000');
+    await page.click('.quick-deposit[data-amount="1000"]');
+    check('快選金額填入', (await page.inputValue('#deposit-amount')) === '1000');
     await page.click('#confirm-deposit-btn');
-    await page.waitForTimeout(700);
+    await page.waitForTimeout(900);
+    check('儲值後餘額 1000', await balanceOf(page) === 1000);
     check('儲值後付款鍵解鎖', !(await page.locator('#checkout-pay-btn').isDisabled()));
+
     await page.click('#checkout-pay-btn');
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(1500);
     check('付款成功', await page.locator('#checkoutSidebar.open').count() === 0);
     check('剛買的位子已鎖定', await page.locator('#seat-map .seat.occupied').count() >= 1);
+    check('餘額已扣款', await balanceOf(page) < 1000);
 
     console.log('\n# 修改用戶名');
     await page.goto(`${BASE}/profile.html`);
-    await page.waitForTimeout(600);
-    await page.fill('#usernameUpdate', 'jane_new');
+    await page.waitForSelector('#usernameUpdate', { timeout: 8000 });
+    await page.waitForTimeout(400);
+    await page.fill('#usernameUpdate', 'tester_new');
     await page.click('#changeUsername');
-    await page.waitForTimeout(500);
-    check('導覽列顯示新名稱', (await page.locator('#navbarDropdown').textContent()).trim() === 'jane_new');
-    await page.click('#navbarDropdown');
-    await page.click('#logout-btn');
-    await page.waitForTimeout(900);
-    await login(page, 'jane_new', 'securepass');
-    check('可用新名稱登入', (await page.locator('#navbarDropdown').textContent()).trim() === 'jane_new');
+    await page.waitForTimeout(700);
+    check('導覽列顯示新名稱', (await page.locator('#navbarDropdown').textContent()).trim() === 'tester_new');
+
+    await logout(page);
+    await login(page, 'tester_new', 'pass1234');
+    check('可用新名稱登入', (await page.locator('#navbarDropdown').textContent()).trim() === 'tester_new');
 
     console.log('\n# 重複註冊');
-    await page.evaluate(() => localStorage.removeItem('userInfo'));
-    await page.reload();
-    await page.waitForTimeout(500);
-    await page.click('#nav-register-btn');
-    await page.waitForSelector('#authModal.show');
-    await page.waitForTimeout(300);
-    await page.fill('#register-username', 'demo');
-    await page.fill('#register-email', 'x@y.com');
-    await page.fill('#register-password', 'aaa11111');
-    await page.fill('#register-confirm-password', 'aaa11111');
-    await page.click('#modal-register-form button[type=submit]');
-    await page.waitForTimeout(500);
-    check('重複帳號被擋下', (await page.locator('.toast-body').last().textContent()).includes('已存在'));
+    await logout(page);
+    await register(page, 'demo', 'x@y.com', 'aaa11111');
+    check('重複帳號被擋下',
+        (await page.locator('.toast-body').last().textContent()).includes('已存在'));
+
+    console.log('\n# 未登入時的保護');
+    await page.goto(`${BASE}/profile.html`);
+    await page.waitForURL(/index\.html/, { timeout: 8000 }).catch(() => {});
+    check('未登入無法進入個人專區', page.url().includes('index.html'), page.url());
 }
 
 /* ------------------------------------------------------------------ */
 
-(async () => {
-    const server = await startServer();
-    const browser = await chromium.launch();
+async function main() {
+    initDatabase({ quiet: true });
+    const app = createApp();
+
+    const server = await new Promise(resolve => {
+        const s = app.listen(0, '127.0.0.1', () => resolve(s));
+    });
+    BASE = `http://127.0.0.1:${server.address().port}`;
+
+    // 預設用 Playwright 自己下載的瀏覽器；
+    // 需要指定既有的 Chromium 時可設環境變數 CHROMIUM_PATH
+    const browser = await chromium.launch(
+        process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}
+    );
     const errors = [];
 
     try {
-        await testBookingFlow(browser, errors);
+        await testMainFlow(browser, errors);
+        await testSeatLockAcrossUsers(browser, errors);
         await testAccountFlow(browser, errors);
     } catch (error) {
         problems.push(`測試中斷: ${error.message}`);
@@ -313,6 +376,8 @@ async function testAccountFlow(browser, errors) {
     } finally {
         await browser.close();
         server.close();
+        closeDb();
+        fs.rmSync(TMP_DIR, { recursive: true, force: true });
     }
 
     console.log(`\n===== ${passed} 項通過，${problems.length} 項失敗 =====`);
@@ -326,4 +391,9 @@ async function testAccountFlow(browser, errors) {
     }
 
     process.exit(problems.length || errors.length ? 1 : 0);
-})();
+}
+
+main().catch(error => {
+    console.error('測試中斷:', error);
+    process.exit(1);
+});
