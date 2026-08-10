@@ -176,29 +176,38 @@ const BookingPage = {
 
         this.elements.seatMap.innerHTML = '<p class="text-center text-muted py-4">座位載入中...</p>';
 
-        let bookedSeats = [];
+        let seatMap = { occupied: [], locked: [] };
         try {
-            bookedSeats = await DataAPI.getBookedSeats(showtime.id);
+            seatMap = await DataAPI.getSeatMap(showtime.id);
         } catch (error) {
             console.error('載入座位失敗:', error);
+            this.showSeatMessage('無法載入座位資料，請重新整理頁面', 'danger');
+            return;
         }
 
-        const isBooked = (row, col) =>
-            bookedSeats.some(s => Number(s.row) === row && Number(s.col) === col);
+        const toKey = seat => `${seat.row}-${seat.col}`;
+        const sold = new Set(seatMap.occupied.map(toKey));
+        // 別人結帳中保留的位子，這裡一樣不能選
+        const heldByOthers = new Set((seatMap.locked || []).map(toKey));
 
         let html = '';
         for (let row = 1; row <= showtime.theaterRows; row++) {
             html += '<div class="seat-row">';
             html += `<span class="seat-row-label">${String.fromCharCode(64 + row)}</span>`;
             for (let col = 1; col <= showtime.theaterCols; col++) {
-                const occupied = isBooked(row, col);
+                const key = `${row}-${col}`;
+                const isSold = sold.has(key);
+                const isHeld = heldByOthers.has(key);
+                const taken = isSold || isHeld;
                 const label = `${String.fromCharCode(64 + row)}${col}`;
+                const note = isSold ? '（已售出）' : (isHeld ? '（他人選位中）' : '');
+
                 html += `<button type="button"
-                            class="seat ${occupied ? 'occupied' : 'available'}"
+                            class="seat ${taken ? 'occupied' : 'available'}"
                             data-row="${row}" data-col="${col}"
-                            title="${label}${occupied ? '（已售出）' : ''}"
+                            title="${label}${note}"
                             aria-label="座位 ${label}"
-                            ${occupied ? 'disabled aria-disabled="true"' : ''}></button>`;
+                            ${taken ? 'disabled aria-disabled="true"' : ''}></button>`;
             }
             html += '</div>';
         }
@@ -310,11 +319,14 @@ const BookingPage = {
      * 送出訂單
      * -------------------------------------------------------------- */
 
-    onConfirm() {
+    /**
+     * 確認購票：先向伺服器保留座位，成功才進結帳，
+     * 這樣使用者在填付款資訊時位子不會被別人買走。
+     */
+    async onConfirm() {
         if (!AuthManager.isLoggedIn()) {
             AuthManager.showToast('請先登入才能訂票', 'warning');
-            const authModal = new bootstrap.Modal(document.getElementById('authModal'));
-            authModal.show();
+            new bootstrap.Modal(document.getElementById('authModal')).show();
             return;
         }
 
@@ -325,20 +337,35 @@ const BookingPage = {
 
         const showtime = this.currentShowtime;
         const seats = [...this.selectedSeats].sort((a, b) => a.row - b.row || a.col - b.col);
+        const button = this.elements.confirmBtn;
 
-        CheckoutSidebar.open({
-            showtimeId: showtime.id,
-            movieId: showtime.movieId,
-            movieTitle: showtime.movieTitle,
-            moviePoster: showtime.moviePoster,
-            date: showtime.date,
-            time: showtime.time,
-            theaterName: showtime.theaterName,
-            seats: seats,
-            seatLabels: seats.map(s => DataAPI.formatSeatLabel(s)).join('、'),
-            pricePerSeat: showtime.price,
-            totalAmount: showtime.price * seats.length
-        });
+        button.disabled = true;
+        try {
+            const { expiresAt } = await DataAPI.lockSeats(showtime.id, seats);
+
+            CheckoutSidebar.open({
+                showtimeId: showtime.id,
+                movieId: showtime.movieId,
+                movieTitle: showtime.movieTitle,
+                moviePoster: showtime.moviePoster,
+                date: showtime.date,
+                time: showtime.time,
+                theaterName: showtime.theaterName,
+                seats: seats,
+                seatLabels: seats.map(s => DataAPI.formatSeatLabel(s)).join('、'),
+                pricePerSeat: showtime.price,
+                totalAmount: showtime.price * seats.length,
+                expiresAt: expiresAt
+            });
+        } catch (error) {
+            AuthManager.showToast(error.message || '無法保留座位', 'danger');
+            // 位子被搶走時重新拉一次座位圖，讓使用者看到最新狀態
+            if (error.status === 409) {
+                await this.renderSeatMap();
+            }
+        } finally {
+            button.disabled = this.selectedSeats.length === 0;
+        }
     }
 };
 

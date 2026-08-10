@@ -1,11 +1,23 @@
 {
   "name": "faketheater",
-  "version": "1.0.0",
-  "description": "純前端電影購票展示網站",
+  "version": "2.0.0",
+  "description": "電影購票系統 — Express + SQLite 後端搭配原生 JavaScript 前端",
   "private": true,
   "scripts": {
-    "start": "cd FakeTheater && python3 -m http.server 8000",
-    "test": "node tests/e2e.js"
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node tests/api.js && node tests/e2e.js",
+    "test:api": "node tests/api.js",
+    "test:e2e": "node tests/e2e.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^13.0.3",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3"
   },
   "devDependencies": {
     "playwright": "^1.56.1"
