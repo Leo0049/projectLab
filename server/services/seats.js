@@ -11,9 +11,11 @@ const { badRequest, notFound, conflict } = require('../utils/http');
  *
  *   1. 選位階段 → seat_locks 暫時保留座位（預設 5 分鐘），讓使用者安心結帳
  *   2. 付款階段 → BEGIN IMMEDIATE 交易，一次做完「檢查 → 扣款 → 開票」
- *   3. 資料庫層 → booking_seats 的 UNIQUE(showtime_id, seat_row, seat_col)
+ *   3. 資料庫層 → booking_seats 上的部分唯一索引 idx_booking_seats_unique
+ *                （showtime_id, seat_row, seat_col）WHERE status != 'refunded'
  *
- * 第 3 層是最後防線：就算前兩層都被繞過，資料庫也不可能讓同一個位子存在兩筆。
+ * 第 3 層是最後防線：就算前兩層都被繞過，資料庫也不可能讓同一個位子存在兩筆未退票紀錄。
+ * 用「部分」索引是為了讓退票後的舊紀錄留著對帳，同時把位子釋放出來重新賣。
  * ------------------------------------------------------------------ */
 
 /**
@@ -51,9 +53,12 @@ function getSeatMap(showtimeId, userId = null) {
     const showtime = getShowtimeOrFail(showtimeId);
     const db = getDb();
 
-    const occupied = db.prepare(
-        'SELECT seat_row AS row, seat_col AS col FROM booking_seats WHERE showtime_id = ?'
-    ).all(showtimeId);
+    // 已退票的座位不算已售出，位子要能重新賣
+    const occupied = db.prepare(`
+        SELECT seat_row AS row, seat_col AS col
+        FROM booking_seats
+        WHERE showtime_id = ? AND status != 'refunded'
+    `).all(showtimeId);
 
     const locks = db.prepare(
         'SELECT seat_row AS row, seat_col AS col, user_id AS userId FROM seat_locks WHERE showtime_id = ?'
@@ -110,9 +115,10 @@ const lockSeats = writeTransaction((showtimeId, userId, seats) => {
     }
     validateSeatsWithinTheater(showtime, seats);
 
-    const soldStmt = db.prepare(
-        'SELECT 1 FROM booking_seats WHERE showtime_id = ? AND seat_row = ? AND seat_col = ?'
-    );
+    const soldStmt = db.prepare(`
+        SELECT 1 FROM booking_seats
+        WHERE showtime_id = ? AND seat_row = ? AND seat_col = ? AND status != 'refunded'
+    `);
     const lockStmt = db.prepare(
         'SELECT user_id AS userId FROM seat_locks WHERE showtime_id = ? AND seat_row = ? AND seat_col = ?'
     );

@@ -198,14 +198,25 @@ const DataAPI = {
      * @param {Object} filters - {movieId, date, theaterId}
      */
     async getShowtimes(filters = {}) {
+        const { showtimes } = await this.getShowtimePage(filters);
+        return showtimes;
+    },
+
+    /**
+     * 分頁版本，供無限滾動使用
+     * @param {Object} filters - {movieId, date, theaterId, limit, offset}
+     * @returns {Promise<{showtimes:Array, total:number, hasMore:boolean}>}
+     */
+    async getShowtimePage(filters = {}) {
         const params = new URLSearchParams();
-        if (filters.movieId) params.set('movieId', filters.movieId);
-        if (filters.date) params.set('date', filters.date);
-        if (filters.theaterId) params.set('theaterId', filters.theaterId);
+        ['movieId', 'date', 'theaterId', 'limit', 'offset'].forEach(key => {
+            if (filters[key] !== undefined && filters[key] !== '' && filters[key] !== null) {
+                params.set(key, filters[key]);
+            }
+        });
 
         const query = params.toString();
-        const { showtimes } = await this.get(`/showtimes${query ? '?' + query : ''}`);
-        return showtimes;
+        return this.get(`/showtimes${query ? '?' + query : ''}`);
     },
 
     async getShowtimesByMovie(movieId) {
@@ -295,9 +306,100 @@ const DataAPI = {
         return this.post('/wallet/deposit', { amount });
     },
 
-    async getTransactions() {
-        const { transactions } = await this.get('/wallet/transactions');
-        return transactions;
+    /**
+     * 交易紀錄（分頁）
+     * @returns {Promise<{transactions:Array, total:number, hasMore:boolean}>}
+     */
+    async getTransactionPage({ limit = 20, offset = 0 } = {}) {
+        return this.get(`/wallet/transactions?limit=${limit}&offset=${offset}`);
+    },
+
+    /* -------------------------------------------------------------- *
+     * 退票
+     * -------------------------------------------------------------- */
+
+    /**
+     * 退票。退款金額與可否退票都由伺服器判定。
+     * @returns {Promise<{refundAmount:number, fee:number, balance:number, tickets:Object}>}
+     */
+    async refundTicket(ticketId) {
+        return this.post(`/tickets/${parseInt(ticketId)}/refund`);
+    },
+
+    /* -------------------------------------------------------------- *
+     * 金流（儲值）
+     * -------------------------------------------------------------- */
+
+    /**
+     * 建立儲值訂單，回傳要 POST 給金流商的表單
+     * @returns {Promise<{merchantOrderNo:string, action:string, formData:Object}>}
+     */
+    async createDepositOrder(amount) {
+        return this.post('/payments/deposit', { amount });
+    },
+
+    async getPaymentOrder(merchantOrderNo) {
+        return this.get(`/payments/orders/${encodeURIComponent(merchantOrderNo)}`);
+    },
+
+    async getPaymentOrderPage({ limit = 20, offset = 0 } = {}) {
+        return this.get(`/payments/orders?limit=${limit}&offset=${offset}`);
+    },
+
+    /**
+     * 以表單 POST 導向金流商的付款頁。
+     * 用表單而不是 fetch，是因為使用者的瀏覽器必須真的離開本站到金流商那邊。
+     */
+    redirectToGateway({ action, formData }) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = action;
+        form.style.display = 'none';
+
+        Object.entries(formData).forEach(([name, value]) => {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = name;
+            input.value = value;
+            form.appendChild(input);
+        });
+
+        document.body.appendChild(form);
+        form.submit();
+    },
+
+    /* -------------------------------------------------------------- *
+     * 管理後台
+     * -------------------------------------------------------------- */
+
+    async getAdminStats() {
+        return this.get('/admin/stats');
+    },
+
+    async getAdminShowtimes({ date = '', limit = 20, offset = 0 } = {}) {
+        const params = new URLSearchParams({ limit, offset });
+        if (date) params.set('date', date);
+        return this.get(`/admin/showtimes?${params}`);
+    },
+
+    async createShowtime(payload) {
+        return this.post('/admin/showtimes', payload);
+    },
+
+    async deleteShowtime(showtimeId) {
+        return this.del(`/admin/showtimes/${parseInt(showtimeId)}`);
+    },
+
+    async getAdminBookings({ limit = 20, offset = 0 } = {}) {
+        return this.get(`/admin/bookings?limit=${limit}&offset=${offset}`);
+    },
+
+    async getAdminUsers({ limit = 20, offset = 0 } = {}) {
+        return this.get(`/admin/users?limit=${limit}&offset=${offset}`);
+    },
+
+    async adminRefundTicket(ticketId) {
+        return this.post(`/admin/tickets/${parseInt(ticketId)}/refund`);
     },
 
     clearCache() {

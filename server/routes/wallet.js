@@ -1,47 +1,31 @@
 'use strict';
 
 const express = require('express');
-const { getDb, writeTransaction } = require('../db');
+const { getDb } = require('../db');
 const { requireAuth } = require('../middleware/auth');
-const { badRequest } = require('../utils/http');
 
 const router = express.Router();
 
-const MAX_DEPOSIT = 100000;
-
 /**
- * 儲值。金額驗證在伺服器做，前端傳什麼都要重新檢查。
+ * 錢包
+ *
+ * 這裡沒有「直接加值」的端點——加值一律要經過 /api/payments 的金流流程，
+ * 否則任何登入者都能自己把餘額加到任意數字。
  */
-const deposit = writeTransaction((userId, amount) => {
-    const db = getDb();
-    db.prepare('UPDATE users SET balance = balance + ? WHERE id = ?').run(amount, userId);
-    db.prepare('INSERT INTO transactions (user_id, type, amount) VALUES (?, \'儲值\', ?)')
-        .run(userId, amount);
-    return db.prepare('SELECT balance FROM users WHERE id = ?').get(userId).balance;
-});
 
 /**
- * POST /api/wallet/deposit
- */
-router.post('/deposit', requireAuth, (req, res) => {
-    const amount = Number(req.body?.amount);
-
-    if (!Number.isFinite(amount) || !Number.isInteger(amount) || amount <= 0) {
-        throw badRequest('請輸入有效的儲值金額');
-    }
-    if (amount > MAX_DEPOSIT) {
-        throw badRequest(`單次儲值上限為 NT$ ${MAX_DEPOSIT}`);
-    }
-
-    const balance = deposit(req.user.id, amount);
-    res.json({ balance, amount });
-});
-
-/**
- * GET /api/wallet/transactions
+ * GET /api/wallet/transactions?limit=&offset=
+ * 支援分頁，供個人專區的無限滾動使用
  */
 router.get('/transactions', requireAuth, (req, res) => {
-    const transactions = getDb().prepare(`
+    const limit = Math.min(Number(req.query.limit) || 20, 100);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    const db = getDb();
+
+    const total = db.prepare('SELECT COUNT(*) AS n FROM transactions WHERE user_id = ?')
+        .get(req.user.id).n;
+
+    const transactions = db.prepare(`
         SELECT id, type, amount,
                movie_title AS movieTitle,
                movie_date  AS movieDate,
@@ -50,10 +34,10 @@ router.get('/transactions', requireAuth, (req, res) => {
         FROM transactions
         WHERE user_id = ?
         ORDER BY id DESC
-        LIMIT 100
-    `).all(req.user.id);
+        LIMIT ? OFFSET ?
+    `).all(req.user.id, limit, offset);
 
-    res.json({ transactions });
+    res.json({ transactions, total, hasMore: offset + transactions.length < total });
 });
 
 module.exports = router;

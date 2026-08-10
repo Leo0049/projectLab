@@ -3,7 +3,7 @@
 const jwt = require('jsonwebtoken');
 const config = require('../config');
 const { getDb } = require('../db');
-const { unauthorized } = require('../utils/http');
+const { unauthorized, HttpError } = require('../utils/http');
 
 /**
  * 簽發存取權杖
@@ -40,7 +40,7 @@ function requireAuth(req, res, next) {
     }
 
     const user = getDb()
-        .prepare('SELECT id, username, email, balance FROM users WHERE id = ?')
+        .prepare('SELECT id, username, email, balance, role FROM users WHERE id = ?')
         .get(payload.sub);
 
     if (!user) return next(unauthorized('帳號不存在'));
@@ -49,4 +49,16 @@ function requireAuth(req, res, next) {
     next();
 }
 
-module.exports = { signToken, requireAuth };
+/**
+ * 必須是管理員。角色一律從資料庫讀取，不看權杖裡的內容——
+ * 權限被撤銷時不需要等舊權杖過期。
+ */
+function requireAdmin(req, res, next) {
+    if (!req.user) return next(unauthorized());
+    if (req.user.role !== 'admin') {
+        return next(new HttpError(403, '需要管理員權限'));
+    }
+    next();
+}
+
+module.exports = { signToken, requireAuth, requireAdmin };

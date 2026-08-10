@@ -10,6 +10,9 @@ const authRoutes = require('./routes/auth');
 const catalogRoutes = require('./routes/catalog');
 const bookingRoutes = require('./routes/booking');
 const walletRoutes = require('./routes/wallet');
+const paymentRoutes = require('./routes/payments');
+const adminRoutes = require('./routes/admin');
+const sandboxRoutes = require('./routes/sandbox');
 
 /**
  * 建立資料表、匯入種子資料、補齊未來幾天的場次。
@@ -35,6 +38,8 @@ function createApp() {
 
     app.disable('x-powered-by');
     app.use(express.json({ limit: '64kb' }));
+    // 金流回調與沙盒付款頁是表單格式，不是 JSON
+    app.use(express.urlencoded({ extended: false, limit: '64kb' }));
 
     app.get('/api/health', (req, res) => res.json({ ok: true }));
 
@@ -42,6 +47,11 @@ function createApp() {
     app.use('/api', catalogRoutes);
     app.use('/api', bookingRoutes);
     app.use('/api/wallet', walletRoutes);
+    app.use('/api/payments', paymentRoutes);
+    app.use('/api/admin', adminRoutes);
+
+    // 模擬的第三方金流商（正式環境改接綠界後整組可刪除）
+    app.use('/sandbox', sandboxRoutes);
 
     // 前端靜態檔案
     app.use(express.static(config.STATIC_DIR, { extensions: ['html'] }));

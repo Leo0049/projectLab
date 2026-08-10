@@ -80,7 +80,18 @@ router.get('/showtimes', (req, res) => {
         params.theaterId = Number(req.query.theaterId);
     }
 
-    const showtimes = getDb().prepare(`
+    const db = getDb();
+    const whereClause = conditions.join(' AND ');
+
+    const total = db.prepare(`SELECT COUNT(*) AS n FROM showtimes s WHERE ${whereClause}`)
+        .get(params).n;
+
+    // 有給 limit 才分頁；時刻表與電影詳情需要一次拿完，就不帶 limit
+    const paginated = req.query.limit !== undefined;
+    params.limit = Math.min(Number(req.query.limit) || 20, 100);
+    params.offset = Math.max(Number(req.query.offset) || 0, 0);
+
+    const showtimes = db.prepare(`
         SELECT s.id, s.movie_id AS movieId, s.theater_id AS theaterId,
                s.date, s.time, s.price,
                m.title        AS movieTitle,
@@ -91,15 +102,21 @@ router.get('/showtimes', (req, res) => {
                t.name         AS theaterName,
                t.total_rows   AS theaterRows,
                t.total_cols   AS theaterCols,
-               (SELECT COUNT(*) FROM booking_seats bs WHERE bs.showtime_id = s.id) AS soldSeats
+               (SELECT COUNT(*) FROM booking_seats bs
+                 WHERE bs.showtime_id = s.id AND bs.status != 'refunded') AS soldSeats
         FROM showtimes s
         JOIN movies m   ON m.id = s.movie_id
         JOIN theaters t ON t.id = s.theater_id
-        WHERE ${conditions.join(' AND ')}
+        WHERE ${whereClause}
         ORDER BY s.date, s.time, s.id
+        ${paginated ? 'LIMIT @limit OFFSET @offset' : ''}
     `).all(params);
 
-    res.json({ showtimes });
+    res.json({
+        showtimes,
+        total,
+        hasMore: paginated ? params.offset + showtimes.length < total : false
+    });
 });
 
 module.exports = router;

@@ -78,6 +78,13 @@ const WalletSidebar = {
             if (useBtn) {
                 e.preventDefault();
                 this.useSingleTicket(useBtn.dataset.ticketId, useBtn);
+                return;
+            }
+
+            const refundBtn = e.target.closest('.refund-ticket-btn');
+            if (refundBtn) {
+                e.preventDefault();
+                this.refundSingleTicket(refundBtn);
             }
         });
 
@@ -212,11 +219,21 @@ const WalletSidebar = {
                             ${this.ticketInfo(ticket)}
                         </div>
                     </div>
-                    <div class="ticket-card-footer d-flex justify-content-center">
-                        <button type="button" class="btn btn-sm btn-primary w-50 use-ticket-btn"
+                    <div class="ticket-card-footer d-flex gap-2">
+                        <button type="button" class="btn btn-sm btn-primary flex-fill use-ticket-btn"
                                 data-ticket-id="${ticket.id}">
                             立即使用
                         </button>
+                        ${ticket.refundable ? `
+                            <button type="button" class="btn btn-sm btn-outline-secondary flex-fill refund-ticket-btn"
+                                    data-ticket-id="${ticket.id}"
+                                    data-refund-amount="${ticket.refundAmount}"
+                                    data-seat-label="${escapeHtml(ticket.seatLabel)}">
+                                退票
+                            </button>
+                        ` : `
+                            <span class="ticket-refund-note flex-fill">${escapeHtml(ticket.refundReason)}</span>
+                        `}
                     </div>
                 </div>
             `;
@@ -247,7 +264,9 @@ const WalletSidebar = {
         container.innerHTML = tickets.map(ticket => `
             <div class="ticket-card ticket-card-realistic mb-3 used">
                 <div class="ticket-card-header">
-                    <span class="badge bg-secondary">已使用</span>
+                    <span class="badge ${ticket.status === 'refunded' ? 'bg-danger' : 'bg-secondary'}">
+                        ${ticket.status === 'refunded' ? '已退票' : '已使用'}
+                    </span>
                     <small class="text-muted">#${ticket.bookingId}-${ticket.id}</small>
                 </div>
                 <div class="ticket-card-body">
@@ -296,6 +315,40 @@ const WalletSidebar = {
         } catch (error) {
             AuthManager.showToast(error.message || '無法使用票券', 'danger');
             if (button) button.disabled = false;
+        }
+    },
+
+    /**
+     * 退票。金額與規則都由伺服器決定，這裡只負責確認與顯示結果。
+     */
+    async refundSingleTicket(button) {
+        const { ticketId, refundAmount, seatLabel } = button.dataset;
+
+        const confirmed = window.confirm(
+            `確定要退掉座位 ${seatLabel} 嗎？\n\n` +
+            `退款 NT$ ${refundAmount} 將退回錢包餘額（已扣除手續費），此操作無法復原。`
+        );
+        if (!confirmed) return;
+
+        button.disabled = true;
+
+        try {
+            const result = await DataAPI.refundTicket(ticketId);
+            AuthManager.setBalance(result.balance);
+            AuthManager.showToast(
+                `座位 ${seatLabel} 已退票，NT$ ${result.refundAmount} 已退回錢包`, 'success'
+            );
+
+            const unusedContainer = document.getElementById('unused-tickets-list');
+            const historyContainer = document.getElementById('history-tickets-list');
+            if (unusedContainer) this.renderActiveTickets(result.tickets.active, unusedContainer);
+            if (historyContainer) this.renderHistoryTickets(result.tickets.history, historyContainer);
+
+            // 訂票頁若正開著同一個場次，讓釋出的位子立刻可選
+            if (typeof refreshSeatMap === 'function') refreshSeatMap();
+        } catch (error) {
+            AuthManager.showToast(error.message || '退票失敗', 'danger');
+            button.disabled = false;
         }
     },
 

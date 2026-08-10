@@ -31,5 +31,30 @@ module.exports = {
     // 票券進入「使用中」後多久歸檔到歷史票券
     TICKET_EXPIRY_MS: 60 * 1000,
 
+    /* -------------------------------------------------------------- *
+     * 金流（沙盒）
+     *
+     * 簽章演算法沿用綠界 ECPay 的 CheckMacValue 規則，
+     * 之後要換成真的金流商，只需要新增一個 provider 並填入正式的金鑰。
+     * -------------------------------------------------------------- */
+    PAYMENT_PROVIDER: process.env.PAYMENT_PROVIDER || 'sandbox',
+    PAYMENT_MERCHANT_ID: process.env.PAYMENT_MERCHANT_ID || '3002607',
+    PAYMENT_HASH_KEY: process.env.PAYMENT_HASH_KEY || 'pwFHCqoQZGmho4w6',
+    PAYMENT_HASH_IV: process.env.PAYMENT_HASH_IV || 'EkRm7iFT261dpevs',
+
+    // 金流訂單多久沒付款就失效
+    PAYMENT_ORDER_TTL_MS: Number(process.env.PAYMENT_ORDER_TTL_MS) || 15 * 60 * 1000,
+
+    PAYMENT_MIN_AMOUNT: 100,
+    PAYMENT_MAX_AMOUNT: 100000,
+
+    /* -------------------------------------------------------------- *
+     * 退票規則
+     * -------------------------------------------------------------- */
+    // 開演前多久停止受理退票
+    REFUND_CUTOFF_MINUTES: Number(process.env.REFUND_CUTOFF_MINUTES) || 30,
+    // 退票手續費比例
+    REFUND_FEE_RATE: Number(process.env.REFUND_FEE_RATE) || 0.1,
+
     IS_PROD: process.env.NODE_ENV === 'production'
 };

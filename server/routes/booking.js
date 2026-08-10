@@ -71,4 +71,13 @@ router.get('/tickets/stats', requireAuth, (req, res) => {
     res.json(bookingService.getTicketStats(req.user.id));
 });
 
+/**
+ * POST /api/tickets/:id/refund
+ * 退票。規則與退款金額由伺服器決定，前端只負責顯示。
+ */
+router.post('/tickets/:id/refund', requireAuth, (req, res) => {
+    const result = bookingService.refundTicket(Number(req.params.id), req.user.id);
+    res.json({ ...result, tickets: bookingService.listTickets(req.user.id) });
+});
+
 module.exports = router;

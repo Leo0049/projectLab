@@ -3,18 +3,28 @@
         "id": 1,
         "username": "johndoe",
         "password": "password123",
-        "balance": 1000.00
+        "balance": 1000.00,
+        "role": "user"
     },
     {
         "id": 2,
         "username": "janedoe",
         "password": "securepass",
-        "balance": 500.00
+        "balance": 500.00,
+        "role": "user"
     },
     {
         "id": 3,
         "username": "demo",
         "password": "demo123",
-        "balance": 2000.00
+        "balance": 2000.00,
+        "role": "user"
+    },
+    {
+        "id": 4,
+        "username": "admin",
+        "password": "admin123",
+        "balance": 0,
+        "role": "admin"
     }
 ]

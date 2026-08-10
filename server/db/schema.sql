@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
     email         TEXT    NOT NULL UNIQUE,
     password_hash TEXT    NOT NULL,
     balance       INTEGER NOT NULL DEFAULT 0 CHECK (balance >= 0),
+    role          TEXT    NOT NULL DEFAULT 'user',   -- user | admin
     created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -47,12 +48,13 @@ CREATE TABLE IF NOT EXISTS showtimes (
 CREATE INDEX IF NOT EXISTS idx_showtimes_lookup ON showtimes (date, movie_id);
 
 CREATE TABLE IF NOT EXISTS bookings (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id      INTEGER NOT NULL REFERENCES users(id),
-    showtime_id  INTEGER NOT NULL REFERENCES showtimes(id),
-    total_amount INTEGER NOT NULL CHECK (total_amount >= 0),
-    status       TEXT    NOT NULL DEFAULT 'Paid',
-    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         INTEGER NOT NULL REFERENCES users(id),
+    showtime_id     INTEGER NOT NULL REFERENCES showtimes(id),
+    total_amount    INTEGER NOT NULL CHECK (total_amount >= 0),
+    refunded_amount INTEGER NOT NULL DEFAULT 0 CHECK (refunded_amount >= 0),
+    status          TEXT    NOT NULL DEFAULT 'Paid',  -- Paid | PartiallyRefunded | Refunded
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_bookings_user ON bookings (user_id, created_at DESC);
@@ -63,11 +65,18 @@ CREATE TABLE IF NOT EXISTS booking_seats (
     showtime_id INTEGER NOT NULL REFERENCES showtimes(id),
     seat_row    INTEGER NOT NULL CHECK (seat_row > 0),
     seat_col    INTEGER NOT NULL CHECK (seat_col > 0),
-    status      TEXT    NOT NULL DEFAULT 'unused',   -- unused | using | used
+    status      TEXT    NOT NULL DEFAULT 'unused',   -- unused | using | used | refunded
     used_at     INTEGER,                             -- epoch ms
-    -- ★ 防止超賣：同一場次的同一個座位只可能存在一筆
-    UNIQUE (showtime_id, seat_row, seat_col)
+    refunded_at INTEGER                              -- epoch ms
 );
+
+-- ★ 防止超賣的關鍵：部分唯一索引
+-- 同一場次的同一個座位，在「尚未退票」的紀錄中只能存在一筆。
+-- 退票後該列的 status 變成 refunded，就被排除在索引之外，位子可以重新賣出，
+-- 但歷史紀錄仍然完整保留（不需要刪除資料）。
+CREATE UNIQUE INDEX IF NOT EXISTS idx_booking_seats_unique
+    ON booking_seats (showtime_id, seat_row, seat_col)
+    WHERE status != 'refunded';
 
 CREATE INDEX IF NOT EXISTS idx_booking_seats_showtime ON booking_seats (showtime_id);
 
@@ -86,7 +95,7 @@ CREATE INDEX IF NOT EXISTS idx_seat_locks_expiry ON seat_locks (expires_at);
 CREATE TABLE IF NOT EXISTS transactions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id     INTEGER NOT NULL REFERENCES users(id),
-    type        TEXT    NOT NULL,                    -- 儲值 | 購票 | 退款
+    type        TEXT    NOT NULL,                    -- 儲值 | 購票 | 退票
     amount      INTEGER NOT NULL,                    -- 正數為收入、負數為支出
     movie_title TEXT    NOT NULL DEFAULT '',
     movie_date  TEXT    NOT NULL DEFAULT '',
@@ -96,3 +105,20 @@ CREATE TABLE IF NOT EXISTS transactions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions (user_id, id DESC);
+
+-- 金流訂單。儲值走第三方金流（沙盒），購票則是從錢包餘額扣款。
+CREATE TABLE IF NOT EXISTS payment_orders (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    merchant_order_no TEXT   NOT NULL UNIQUE,        -- 我方訂單編號，送給金流商
+    user_id          INTEGER NOT NULL REFERENCES users(id),
+    amount           INTEGER NOT NULL CHECK (amount > 0),
+    status           TEXT    NOT NULL DEFAULT 'pending',  -- pending | paid | failed | expired
+    provider         TEXT    NOT NULL DEFAULT 'sandbox',
+    provider_trade_no TEXT,                          -- 金流商的交易編號
+    callback_raw     TEXT,                           -- 原始回調內容，對帳用
+    created_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+    paid_at          TEXT,
+    expires_at       INTEGER NOT NULL                -- epoch ms
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_orders_user ON payment_orders (user_id, id DESC);
