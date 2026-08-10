@@ -1,0 +1,13 @@
+{
+  "name": "faketheater",
+  "version": "1.0.0",
+  "description": "純前端電影購票展示網站",
+  "private": true,
+  "scripts": {
+    "start": "cd FakeTheater && python3 -m http.server 8000",
+    "test": "node tests/e2e.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1"
+  }
+}

@@ -128,18 +128,12 @@ const CheckoutSidebar = {
             }
         });
 
-        // 監聽餘額變化（儲值後更新）
-        this.setupBalanceObserver();
-    },
-
-    // 設置餘額監聽器
-    setupBalanceObserver() {
-        // 定期檢查餘額變化
-        setInterval(() => {
+        // 餘額變動時即時更新（由 AuthManager.updateBalanceDisplay 發出）
+        document.addEventListener('balance:changed', () => {
             if (this.isOpen && this.orderData) {
                 this.updateBalanceDisplay();
             }
-        }, 500);
+        });
     },
 
     // 開啟側邊欄
@@ -192,15 +186,15 @@ const CheckoutSidebar = {
 
         container.innerHTML = `
             <div class="order-movie-info">
-                <img src="${order.moviePoster || 'pic/placeholder.png'}" 
-                     class="order-movie-poster" alt="${order.movieTitle}">
+                <img src="${escapeHtml(order.moviePoster || '')}"
+                     class="order-movie-poster" alt="${escapeHtml(order.movieTitle)}">
                 <div class="order-movie-details">
-                    <h6 class="mb-2">${order.movieTitle}</h6>
-                    <p class="mb-1 small id="ticket.date"><strong> 日期：</strong>${order.date}</p>
-                    <p class="mb-1 small id="ticket.time"><strong> 時間：</strong>${order.time}</p>
-                    <p class="mb-1 small id="ticket.theaterName"><strong> 影廳：</strong>${order.theaterName}</p>
-                    <p class="mb-1 small id="ticket.seatLabels"><strong> 座位：</strong>${order.seatLabels}</p>
-                    <p class="mb-0 small id="ticketCount"><strong> 數量：</strong>${order.seats.length} 張</p>
+                    <h6 class="mb-2">${escapeHtml(order.movieTitle)}</h6>
+                    <p class="mb-1 small"><strong>日期：</strong>${escapeHtml(order.date)}</p>
+                    <p class="mb-1 small"><strong>時間：</strong>${escapeHtml(order.time)}</p>
+                    <p class="mb-1 small"><strong>影廳：</strong>${escapeHtml(order.theaterName)}</p>
+                    <p class="mb-1 small"><strong>座位：</strong>${escapeHtml(order.seatLabels)}</p>
+                    <p class="mb-0 small"><strong>數量：</strong>${order.seats.length} 張</p>
                 </div>
             </div>
         `;
@@ -241,7 +235,9 @@ const CheckoutSidebar = {
     },
 
     // 處理付款
-    handlePayment() {
+    async handlePayment() {
+        const payBtn = document.getElementById('checkout-pay-btn');
+
         try {
             if (!this.orderData) return;
 
@@ -255,48 +251,62 @@ const CheckoutSidebar = {
                 return;
             }
 
-            // 扣款（帶電影詳情）
+            // 避免連點造成重複扣款
+            if (payBtn) payBtn.disabled = true;
+
+            const order = this.orderData;
+
+            // 扣款（帶電影詳情，供個人專區的消費紀錄顯示）
             const deductDetails = {
-                movieTitle: this.orderData.movieTitle,
-                movieDate: this.orderData.date,
-                showtime: this.orderData.time
+                movieTitle: order.movieTitle,
+                movieDate: order.date,
+                showtime: order.time
             };
 
-            if (AuthManager.deduct(this.orderData.totalAmount, `購票 - ${this.orderData.movieTitle}`, deductDetails)) {
-                // 創建訂票記錄
-                const result = DataAPI.createBooking({
-                    showtimeId: this.orderData.showtimeId,
-                    seats: this.orderData.seats,
-                    movieTitle: this.orderData.movieTitle,
-                    moviePoster: this.orderData.moviePoster,
-                    date: this.orderData.date,
-                    time: this.orderData.time,
-                    theaterName: this.orderData.theaterName,
-                    pricePerSeat: this.orderData.pricePerSeat
-                });
+            if (!AuthManager.deduct(order.totalAmount, `購票 - ${order.movieTitle}`, deductDetails)) {
+                AuthManager.showToast('扣款失敗，請確認餘額', 'danger');
+                return;
+            }
 
-                if (result.success) {
-                    AuthManager.showToast('付款成功！票券已加入票夾', 'success');
-                    this.close();
+            const result = await DataAPI.createBooking({
+                userId: AuthManager.getUser().id,
+                showtimeId: order.showtimeId,
+                movieId: order.movieId,
+                seats: order.seats,
+                movieTitle: order.movieTitle,
+                moviePoster: order.moviePoster,
+                date: order.date,
+                time: order.time,
+                theaterName: order.theaterName,
+                pricePerSeat: order.pricePerSeat
+            });
 
-                    // 清除選擇的座位並刷新座位圖
-                    if (typeof refreshSeatMap === 'function') {
-                        refreshSeatMap();
-                    } else {
-                        // 重新載入頁面以更新座位狀態
-                        setTimeout(() => {
-                            window.location.reload();
-                        }, 1500);
-                    }
-                } else {
-                    // 退款
-                    AuthManager.deposit(this.orderData.totalAmount);
-                    AuthManager.showToast('訂票失敗：' + result.message, 'danger');
-                }
+            if (!result.success) {
+                // 訂票失敗就退款，不能只扣錢不給票
+                AuthManager.deposit(order.totalAmount);
+                AuthManager.showToast('訂票失敗：' + result.message, 'danger');
+                return;
+            }
+
+            AuthManager.showToast('付款成功！票券已加入票夾', 'success');
+            this.close();
+
+            // 重畫座位圖，讓剛買的位子立刻變成已售出
+            if (typeof refreshSeatMap === 'function') {
+                await refreshSeatMap();
+            } else {
+                setTimeout(() => window.location.reload(), 1500);
             }
         } catch (error) {
             console.error('付款錯誤:', error);
             AuthManager.showToast('付款過程發生錯誤', 'danger');
+        } finally {
+            // 由餘額重新決定按鈕狀態（側邊欄已關閉時就不用管了）
+            if (this.isOpen) {
+                this.updateBalanceDisplay();
+            } else if (payBtn) {
+                payBtn.disabled = false;
+            }
         }
     }
 };

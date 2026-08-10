@@ -1,22 +1,38 @@
+/**
+ * 登入 / 註冊 / 錢包（餘額）管理
+ *
+ * 帳號資料一律透過 DataAPI 存取（localStorage.users），
+ * 本模組只保存「目前登入的是誰」（localStorage.userInfo）。
+ */
+
 const AuthManager = {
     currentUser: null,
 
+    // 餘額寫回排隊，避免連續操作互相覆蓋
+    _persistQueue: Promise.resolve(),
 
     init() {
         this.loadUserFromStorage();
         this.renderAuthUI();
         this.bindEvents();
         this.updateNavbar();
+        this.syncBalanceFromStore();
     },
 
     loadUserFromStorage() {
-        const userInfo = localStorage.getItem('userInfo');
-        if (userInfo) {
+        try {
+            const userInfo = localStorage.getItem('userInfo');
+            if (!userInfo) return;
+
             this.currentUser = JSON.parse(userInfo);
-            if (this.currentUser.balance === undefined) {
+            if (this.currentUser && this.currentUser.balance === undefined) {
                 this.currentUser.balance = 0;
                 this.saveUserToStorage();
             }
+        } catch (error) {
+            console.warn('登入狀態毀損，已登出', error);
+            localStorage.removeItem('userInfo');
+            this.currentUser = null;
         }
     },
 
@@ -24,6 +40,39 @@ const AuthManager = {
         if (this.currentUser) {
             localStorage.setItem('userInfo', JSON.stringify(this.currentUser));
         }
+    },
+
+    /**
+     * 以帳號資料庫的餘額為準（例如在別的分頁儲值過）
+     */
+    async syncBalanceFromStore() {
+        if (!this.isLoggedIn() || typeof DataAPI === 'undefined') return;
+
+        try {
+            const users = await DataAPI.getUsers();
+            const stored = users.find(u => u.id === this.currentUser.id);
+            if (stored && stored.balance !== this.currentUser.balance) {
+                this.currentUser.balance = stored.balance;
+                this.saveUserToStorage();
+                this.updateBalanceDisplay();
+                this.updateNavbar();
+            }
+        } catch (error) {
+            console.warn('同步餘額失敗:', error);
+        }
+    },
+
+    /**
+     * 把目前使用者的變更寫回帳號資料庫，讓下次登入仍然存在
+     * @param {Object} changes
+     */
+    persist(changes) {
+        if (!this.currentUser || typeof DataAPI === 'undefined') return;
+
+        const userId = this.currentUser.id;
+        this._persistQueue = this._persistQueue
+            .then(() => DataAPI.updateUser(userId, changes))
+            .catch(error => console.error('寫回帳號資料失敗:', error));
     },
 
     isLoggedIn() {
@@ -45,6 +94,7 @@ const AuthManager = {
         if (this.currentUser) {
             this.currentUser.balance = amount;
             this.saveUserToStorage();
+            this.persist({ balance: amount });
             this.updateBalanceDisplay();
         }
     },
@@ -54,8 +104,10 @@ const AuthManager = {
         if (this.currentUser && amount > 0) {
             this.currentUser.balance += amount;
             this.saveUserToStorage();
+            this.persist({ balance: this.currentUser.balance });
             this.addTransaction('儲值', amount);
             this.updateBalanceDisplay();
+            this.updateNavbar();
             return true;
         }
         return false;
@@ -66,8 +118,10 @@ const AuthManager = {
         if (this.currentUser && this.currentUser.balance >= amount) {
             this.currentUser.balance -= amount;
             this.saveUserToStorage();
+            this.persist({ balance: this.currentUser.balance });
             this.addTransaction(description, -amount, details);
             this.updateBalanceDisplay();
+            this.updateNavbar();
             return true;
         }
         return false;
@@ -96,86 +150,91 @@ const AuthManager = {
 
 
     updateBalanceDisplay() {
-        const balanceElements = document.querySelectorAll('.user-balance');
-        balanceElements.forEach(el => {
-            el.textContent = this.getBalance();
+        const balance = this.getBalance();
+        document.querySelectorAll('.user-balance').forEach(el => {
+            el.textContent = balance;
         });
+        // 讓結帳側邊欄等模組即時反應餘額變化，不需輪詢
+        document.dispatchEvent(new CustomEvent('balance:changed', { detail: { balance } }));
     },
 
+    /**
+     * 登入
+     * @returns {Promise<{success:boolean, message?:string}>}
+     */
     async login(username, password) {
-        const registeredUsers = JSON.parse(localStorage.getItem('registeredUsers') || '[]');
-        const registeredUser = registeredUsers.find(u => u.username === username);
+        try {
+            const user = await DataAPI.loginUser(username, password);
+            if (!user) {
+                return { success: false, message: '用戶名或密碼錯誤' };
+            }
 
-        if (registeredUser && registeredUser.password === password) {
             this.currentUser = {
-                id: registeredUser.id,
-                username: registeredUser.username,
-                email: registeredUser.email,
-                balance: registeredUser.balance || 0,
+                id: user.id,
+                username: user.username,
+                email: user.email,
+                balance: user.balance || 0,
                 token: 'mock-token-' + Date.now()
             };
             this.saveUserToStorage();
             return { success: true };
-        }
-
-        try {
-            const jsonUser = await DataAPI.loginUser(username, password);
-            if (jsonUser) {
-                this.currentUser = {
-                    id: jsonUser.id,
-                    username: jsonUser.username,
-                    email: jsonUser.username + '@faketheater.com',
-                    balance: jsonUser.balance || 0,
-                    token: 'mock-token-' + Date.now(),
-                    isJsonUser: true
-                };
-                this.saveUserToStorage();
-                return { success: true };
-            }
         } catch (error) {
-            console.error('DataAPI login failed:', error);
+            console.error('登入失敗:', error);
+            return { success: false, message: '登入時發生錯誤，請稍後再試' };
         }
-
-        return { success: false, message: '用戶名或密碼錯誤' };
     },
 
-    googleLogin() {
-        this.currentUser = {
-            id: Date.now(),
+    /**
+     * 模擬 Google 登入：固定綁在同一組展示帳號上，餘額才不會每次歸零
+     * @returns {Promise<{success:boolean, message?:string}>}
+     */
+    async googleLogin() {
+        const GOOGLE_DEMO = {
             username: 'Google 用戶',
             email: 'google.user@gmail.com',
-            balance: 0,
-            token: 'google-mock-token-' + Date.now(),
-            isGoogleUser: true
+            password: 'google-oauth-demo'
         };
-        this.saveUserToStorage();
-        return { success: true };
+
+        try {
+            let user = await DataAPI.loginUser(GOOGLE_DEMO.username, GOOGLE_DEMO.password);
+
+            if (!user) {
+                const result = await DataAPI.registerUser(
+                    GOOGLE_DEMO.username, GOOGLE_DEMO.password, GOOGLE_DEMO.email
+                );
+                if (!result.success) {
+                    return { success: false, message: result.message };
+                }
+                user = result.user;
+            }
+
+            this.currentUser = {
+                id: user.id,
+                username: user.username,
+                email: user.email,
+                balance: user.balance || 0,
+                token: 'google-mock-token-' + Date.now(),
+                isGoogleUser: true
+            };
+            this.saveUserToStorage();
+            return { success: true };
+        } catch (error) {
+            console.error('Google 登入失敗:', error);
+            return { success: false, message: 'Google 登入時發生錯誤' };
+        }
     },
 
-    register(username, email, password) {
-        const users = JSON.parse(localStorage.getItem('registeredUsers') || '[]');
-
-        if (users.find(u => u.username === username)) {
-            return { success: false, message: '用戶名已存在' };
+    /**
+     * 註冊
+     * @returns {Promise<{success:boolean, message?:string}>}
+     */
+    async register(username, email, password) {
+        try {
+            return await DataAPI.registerUser(username, password, email);
+        } catch (error) {
+            console.error('註冊失敗:', error);
+            return { success: false, message: '註冊時發生錯誤，請稍後再試' };
         }
-
-
-        if (users.find(u => u.email === email)) {
-            return { success: false, message: '電子郵件已被使用' };
-        }
-
-        const newUser = {
-            id: Date.now(),
-            username: username,
-            email: email,
-            password: password,
-            balance: 0
-        };
-
-        users.push(newUser);
-        localStorage.setItem('registeredUsers', JSON.stringify(users));
-
-        return { success: true };
     },
 
 
@@ -188,21 +247,14 @@ const AuthManager = {
 
 
     updateUsername(newUsername) {
-        if (this.currentUser && newUsername.trim()) {
-            this.currentUser.username = newUsername;
-            this.saveUserToStorage();
+        const name = (newUsername || '').trim();
+        if (!this.currentUser || !name) return false;
 
-            const users = JSON.parse(localStorage.getItem('registeredUsers') || '[]');
-            const userIndex = users.findIndex(u => u.id === this.currentUser.id);
-            if (userIndex !== -1) {
-                users[userIndex].username = newUsername;
-                localStorage.setItem('registeredUsers', JSON.stringify(users));
-            }
-
-            this.updateNavbar();
-            return true;
-        }
-        return false;
+        this.currentUser.username = name;
+        this.saveUserToStorage();
+        this.persist({ username: name });
+        this.updateNavbar();
+        return true;
     },
 
     renderAuthUI() {
@@ -374,19 +426,24 @@ const AuthManager = {
 
         const registerForm = document.getElementById('modal-register-form');
         if (registerForm) {
-            registerForm.addEventListener('submit', (e) => {
+            registerForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
-                const username = document.getElementById('register-username').value;
-                const email = document.getElementById('register-email').value;
+                const username = document.getElementById('register-username').value.trim();
+                const email = document.getElementById('register-email').value.trim();
                 const password = document.getElementById('register-password').value;
                 const confirmPassword = document.getElementById('register-confirm-password').value;
+
+                if (!username || !password) {
+                    this.showToast('請填寫用戶名與密碼', 'warning');
+                    return;
+                }
 
                 if (password !== confirmPassword) {
                     this.showToast('密碼不一致', 'danger');
                     return;
                 }
 
-                const result = this.register(username, email, password);
+                const result = await this.register(username, email, password);
                 if (result.success) {
                     this.showToast('註冊成功！請登入', 'success');
                     document.getElementById('login-tab').click();
@@ -399,28 +456,32 @@ const AuthManager = {
 
         const googleLoginBtn = document.getElementById('google-login-btn');
         if (googleLoginBtn) {
-            googleLoginBtn.addEventListener('click', () => {
-                const result = this.googleLogin();
+            googleLoginBtn.addEventListener('click', async () => {
+                const result = await this.googleLogin();
                 if (result.success) {
                     const modal = bootstrap.Modal.getInstance(document.getElementById('authModal'));
                     modal.hide();
                     this.showToast('Google 登入成功！', 'success');
                     this.updateNavbar();
                     setTimeout(() => window.location.reload(), 500);
+                } else {
+                    this.showToast(result.message || 'Google 登入失敗', 'danger');
                 }
             });
         }
 
         const googleRegisterBtn = document.getElementById('google-register-btn');
         if (googleRegisterBtn) {
-            googleRegisterBtn.addEventListener('click', () => {
-                const result = this.googleLogin();
+            googleRegisterBtn.addEventListener('click', async () => {
+                const result = await this.googleLogin();
                 if (result.success) {
                     const modal = bootstrap.Modal.getInstance(document.getElementById('authModal'));
                     modal.hide();
                     this.showToast('Google 帳戶已連結！', 'success');
                     this.updateNavbar();
                     setTimeout(() => window.location.reload(), 500);
+                } else {
+                    this.showToast(result.message || 'Google 登入失敗', 'danger');
                 }
             });
         }
@@ -501,9 +562,9 @@ const AuthManager = {
                     <a class="nav-link" href="#" id="wallet-toggle-btn">我的票夾</a>
                 </li>
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" 
+                    <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button"
                         data-bs-toggle="dropdown" aria-expanded="false">
-                        ${this.currentUser.username}
+                        ${escapeHtml(this.currentUser.username)}
                     </a>
                     <ul class="dropdown-menu dropdown-menu-end">
                         <li><a class="dropdown-item" href="profile.html">個人專區</a></li>

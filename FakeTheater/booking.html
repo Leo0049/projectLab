@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>線上訂票 - 電影購票系統</title>
+    <link rel="icon" href="pic/favicon.svg" type="image/svg+xml">
     <link href="css/bootstrap.min.css" rel="stylesheet">
     <link href="css/custom.css" rel="stylesheet">
 </head>
@@ -109,26 +110,21 @@
                 <div class="card">
                     <div class="card-header">座位圖</div>
                     <div class="card-body">
-                        <div class="d-flex justify-content-center mb-3">
-                            <ul class="d-flex list-inline">
-                                <li class="d-flex align-items-center justify-content-center list-inline-item">
-                                    <div class="seat"></div> 空位
-                                </li>
-                                <li class="d-flex align-items-center justify-content-center list-inline-item">
-                                    <div class="seat selected"></div> 您的選擇
-                                </li>
-                                <li class="d-flex align-items-center justify-content-center list-inline-item">
-                                    <div class="seat occupied"></div> 已預訂
-                                </li>
-                            </ul>
+                        <div class="seat-legend mb-4">
+                            <span class="seat-legend-item"><span class="seat available"></span> 空位</span>
+                            <span class="seat-legend-item"><span class="seat selected"></span> 您的選擇</span>
+                            <span class="seat-legend-item"><span class="seat occupied"></span> 已售出</span>
                         </div>
                         <div id="seat-map-container">
-                            <div class="screen">銀幕</div>
-                            <div id="seat-map">
+                            <div class="screen-indicator">銀 幕 S C R E E N</div>
+                            <div id="seat-map" class="seat-map">
+                                <p class="text-center text-secondary py-4 mb-0">請先選擇電影與場次</p>
                             </div>
                         </div>
                         <div class="text-center mt-4">
-                            <p>您選擇了 <span id="selected-seats-count" class="fw-bold text-primary">0</span> 張票</p>
+                            <p class="mb-1">您選擇了 <span id="selected-seats-count" class="fw-bold text-primary">0</span> 張票
+                                <small class="text-muted">（單次最多 6 張）</small>
+                            </p>
                             <p>總金額: <span class="text-success fw-bold">NT$ <span id="total-price">0</span></span></p>
                             <button id="confirm-booking" class="btn btn-success btn-lg" disabled>
                                 確認購票
