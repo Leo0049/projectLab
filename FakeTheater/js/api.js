@@ -302,10 +302,6 @@ const DataAPI = {
         return this.patch('/auth/me', { username });
     },
 
-    async deposit(amount) {
-        return this.post('/wallet/deposit', { amount });
-    },
-
     /**
      * 交易紀錄（分頁）
      * @returns {Promise<{transactions:Array, total:number, hasMore:boolean}>}

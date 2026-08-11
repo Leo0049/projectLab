@@ -1,7 +1,7 @@
 'use strict';
 
 const express = require('express');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, optionalAuth } = require('../middleware/auth');
 const { parseSeats } = require('../utils/http');
 const seatService = require('../services/seats');
 const bookingService = require('../services/bookings');
@@ -12,7 +12,7 @@ const router = express.Router();
  * GET /api/showtimes/:id/seats
  * 座位圖。未登入也能看，只是不會有 heldByMe。
  */
-router.get('/showtimes/:id/seats', (req, res) => {
+router.get('/showtimes/:id/seats', optionalAuth, (req, res) => {
     const userId = req.user ? req.user.id : null;
     res.json(seatService.getSeatMap(Number(req.params.id), userId));
 });

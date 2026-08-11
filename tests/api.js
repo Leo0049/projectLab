@@ -54,6 +54,25 @@ async function api(method, endpoint, { token, body } = {}) {
     return { status: response.status, data };
 }
 
+/**
+ * 以指定的環境變數另開一個行程，回傳它觀察到的設定與行為
+ * @param {Object} env
+ * @returns {Promise<Object>}
+ */
+function runConfigProbe(env) {
+    return new Promise(resolve => {
+        execFile('node', [path.join(__dirname, 'helpers', 'config-probe.js')],
+            { env: { ...process.env, ...env } },
+            (error, stdout) => {
+                try {
+                    resolve(JSON.parse(stdout));
+                } catch {
+                    resolve({ error: `probe crashed: ${error?.message || stdout}` });
+                }
+            });
+    });
+}
+
 function runWorker(args) {
     return new Promise(resolve => {
         execFile('node', [path.join(__dirname, 'helpers', 'race-worker.js'), ...args],
@@ -496,8 +515,10 @@ async function main() {
     });
     const location = redirectRes.headers.get('location') || '';
     check('ClientBackURL 指向外部時不會轉址過去',
-        !location.startsWith('https://evil.example.com'), location);
-    check('外部轉址會退回本站', location.startsWith(BASE), location);
+        !location.includes('evil.example.com'), location);
+    check('轉址一律是本站的相對路徑',
+        location.startsWith('/') && !location.startsWith('//'), location);
+    check('外部網址整個丟掉、退回首頁', location.startsWith('/?'), location);
 
     /* ---------------- 退票 ---------------- */
     console.log('\n# 退票');
@@ -653,6 +674,167 @@ async function main() {
     } else {
         check('管理員可代客退票', false, '找不到可退的票券');
     }
+
+
+    /* ---------------- 收尾修正的回歸測試 ---------------- */
+    console.log('\n# 靜態檔案不得洩漏種子資料');
+
+    for (const file of ['/data/users.json', '/data/movies.json', '/data/theaters.json']) {
+        const res = await fetch(`${BASE}${file}`);
+        check(`${file} 不可被公開讀取`, res.status === 404, `status=${res.status}`);
+    }
+
+    console.log('\n# 偽造 Host 標頭無法讓伺服器對外發請求');
+
+    let spoofHit = false;
+    const spoofTarget = http.createServer((q, s) => { spoofHit = true; s.end('ok'); });
+    await new Promise(resolve => spoofTarget.listen(0, '127.0.0.1', resolve));
+    const spoofPort = spoofTarget.address().port;
+
+    const spoofOrder = await api('POST', '/api/payments/deposit', { token, body: { amount: 300 } });
+    const spoofBody = new URLSearchParams({
+        MerchantTradeNo: spoofOrder.data.formData.MerchantTradeNo,
+        result: 'success',
+        ReturnURL: `http://127.0.0.1:${spoofPort}/stolen`,
+        ClientBackURL: '/'
+    }).toString();
+
+    // 一定要用原生 http：fetch 禁止覆寫 Host 標頭，用它測等於沒測
+    await new Promise(resolve => {
+        const request = http.request({
+            host: '127.0.0.1',
+            port: Number(new URL(BASE).port),
+            path: '/sandbox/pay',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Length': Buffer.byteLength(spoofBody),
+                'Host': `127.0.0.1:${spoofPort}`
+            }
+        }, res => { res.resume(); res.on('end', resolve); });
+        request.on('error', resolve);
+        request.write(spoofBody);
+        request.end();
+    });
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    check('偽造 Host 無法讓回調送到別的位址', spoofHit === false);
+    spoofTarget.close();
+
+    console.log('\n# 金額不符的標記要真的存進資料庫');
+
+    const mismatchOrder = await api('POST', '/api/payments/deposit', { token, body: { amount: 300 } });
+    const mismatchNo = mismatchOrder.data.formData.MerchantTradeNo;
+    const mismatchParams = {
+        MerchantID: payCfg.PAYMENT_MERCHANT_ID,
+        MerchantTradeNo: mismatchNo,
+        TradeNo: 'SBMIS',
+        TradeAmt: '99999',
+        RtnCode: '1',
+        RtnMsg: '交易成功'
+    };
+    mismatchParams.CheckMacValue = signParams(
+        mismatchParams, payCfg.PAYMENT_HASH_KEY, payCfg.PAYMENT_HASH_IV
+    );
+    const mismatchRes = await fetch(`${BASE}/api/payments/webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(mismatchParams).toString()
+    });
+    check('金額不符回 409', mismatchRes.status === 409, `status=${mismatchRes.status}`);
+
+    const mismatchRow = getDb()
+        .prepare('SELECT status, callback_raw FROM payment_orders WHERE merchant_order_no = ?')
+        .get(mismatchNo);
+    check('訂單確實被標記為 failed（沒有被自己的例外回滾）',
+        mismatchRow.status === 'failed', mismatchRow.status);
+    check('原始回調內容有留存供對帳', mismatchRow.callback_raw !== null);
+
+    // 已經 failed 的訂單不能再被正確金額的回調救回來
+    const retryParams = {
+        MerchantID: payCfg.PAYMENT_MERCHANT_ID,
+        MerchantTradeNo: mismatchNo,
+        TradeNo: 'SBRETRY',
+        TradeAmt: '300',
+        RtnCode: '1',
+        RtnMsg: '交易成功'
+    };
+    retryParams.CheckMacValue = signParams(retryParams, payCfg.PAYMENT_HASH_KEY, payCfg.PAYMENT_HASH_IV);
+    const balanceBeforeRetry = (await api('GET', '/api/auth/me', { token })).data.user.balance;
+    await fetch(`${BASE}/api/payments/webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(retryParams).toString()
+    });
+    const balanceAfterRetry = (await api('GET', '/api/auth/me', { token })).data.user.balance;
+    check('標記失敗後不會再被入帳', balanceAfterRetry === balanceBeforeRetry);
+
+    console.log('\n# 座位圖分得出自己保留的位子');
+
+    const heldShowtime = showtimes.data.showtimes.find(st => st.date > today && st.id !== showtimeId);
+    await api('POST', `/api/showtimes/${heldShowtime.id}/locks`, {
+        token, body: { seats: [{ row: 2, col: 2 }] }
+    });
+
+    const mySeatMap = await api('GET', `/api/showtimes/${heldShowtime.id}/seats`, { token });
+    check('自己保留的位子出現在 heldByMe', mySeatMap.data.heldByMe.length === 1,
+        JSON.stringify(mySeatMap.data.heldByMe));
+    check('自己保留的位子不會被列為他人選位中', mySeatMap.data.locked.length === 0);
+
+    const otherSeatMap = await api('GET', `/api/showtimes/${heldShowtime.id}/seats`, { token: alice });
+    check('別人看到的是他人選位中', otherSeatMap.data.locked.length === 1);
+    check('別人的 heldByMe 是空的', otherSeatMap.data.heldByMe.length === 0);
+
+    const anonSeatMap = await api('GET', `/api/showtimes/${heldShowtime.id}/seats`);
+    check('未登入也能看座位圖', anonSeatMap.status === 200 && anonSeatMap.data.locked.length === 1);
+
+    await api('DELETE', `/api/showtimes/${heldShowtime.id}/locks`, { token });
+
+    console.log('\n# 分頁參數的邊界');
+
+    const negativeLimit = await api('GET', '/api/wallet/transactions?limit=-1', { token });
+    check('limit=-1 不會變成不限筆數',
+        negativeLimit.data.transactions.length <= 20,
+        `count=${negativeLimit.data.transactions.length}`);
+
+    const hugeLimit = await api('GET', '/api/wallet/transactions?limit=99999', { token });
+    check('limit 超過上限會被夾住', hugeLimit.data.transactions.length <= 100);
+
+    const negativeOffset = await api('GET', '/api/wallet/transactions?offset=-5', { token });
+    check('offset 為負數不會出錯', negativeOffset.status === 200);
+
+    console.log('\n# 登入回應要帶角色');
+
+    const adminLoginRole = await api('POST', '/api/auth/login', {
+        body: { username: 'admin', password: 'admin123' }
+    });
+    check('管理員登入回應的 role 是 admin',
+        adminLoginRole.data.user.role === 'admin', adminLoginRole.data.user.role);
+
+    const userLoginRole = await api('POST', '/api/auth/login', {
+        body: { username: 'demo', password: 'demo123' }
+    });
+    check('一般會員登入回應的 role 是 user', userLoginRole.data.user.role === 'user');
+
+    console.log('\n# 不同設定下的行為（另開行程，因為 config 在 require 當下就讀完了）');
+
+    const zeroEnv = await runConfigProbe({ REFUND_FEE_RATE: '0', REFUND_CUTOFF_MINUTES: '0' });
+    check('REFUND_FEE_RATE=0 不會被預設值蓋掉', zeroEnv.refundFeeRate === 0,
+        `value=${zeroEnv.refundFeeRate}`);
+    check('REFUND_CUTOFF_MINUTES=0 不會被預設值蓋掉', zeroEnv.refundCutoffMinutes === 0,
+        `value=${zeroEnv.refundCutoffMinutes}`);
+
+    // 正式環境會設 PUBLIC_URL，這條路徑必須跟沙盒的驗證一致，否則付款導回會失效
+    const publicUrlEnv = await runConfigProbe({ PUBLIC_URL: 'http://ticket.example.com/' });
+    check('PUBLIC_URL 的結尾斜線不會造成雙斜線',
+        publicUrlEnv.webhookUrl === 'http://ticket.example.com/api/payments/webhook',
+        publicUrlEnv.webhookUrl);
+    check('PUBLIC_URL 設定後仍會導回原本的頁面',
+        (publicUrlEnv.redirectLocation || '').startsWith('/profile.html'),
+        publicUrlEnv.redirectLocation);
+
+    const liveEnv = await runConfigProbe({ PAYMENT_PROVIDER: 'ecpay' });
+    check('改用正式金流商後沙盒路由不再掛載', liveEnv.sandboxMounted === false);
 
     /* ---------------- 收尾 ---------------- */
     server.close();

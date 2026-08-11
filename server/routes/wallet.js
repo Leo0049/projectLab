@@ -3,6 +3,7 @@
 const express = require('express');
 const { getDb } = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const { readPagination } = require('../utils/http');
 
 const router = express.Router();
 
@@ -18,8 +19,7 @@ const router = express.Router();
  * 支援分頁，供個人專區的無限滾動使用
  */
 router.get('/transactions', requireAuth, (req, res) => {
-    const limit = Math.min(Number(req.query.limit) || 20, 100);
-    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    const { limit, offset } = readPagination(req, { defaultLimit: 20, maxLimit: 100 });
     const db = getDb();
 
     const total = db.prepare('SELECT COUNT(*) AS n FROM transactions WHERE user_id = ?')

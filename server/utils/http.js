@@ -49,4 +49,30 @@ function parseSeats(seats) {
     return parsed;
 }
 
-module.exports = { HttpError, badRequest, unauthorized, notFound, conflict, parseSeats };
+/**
+ * 解析分頁參數。
+ *
+ * limit 一定要有下界：SQLite 把 `LIMIT -1` 當成「不限筆數」，
+ * 只設上界的話 ?limit=-1 就會把整張表倒出來。
+ * @param {import('express').Request} req
+ * @param {{defaultLimit?:number, maxLimit?:number}} options
+ * @returns {{limit:number, offset:number}}
+ */
+function readPagination(req, { defaultLimit = 20, maxLimit = 100 } = {}) {
+    const rawLimit = Number(req.query.limit);
+    const rawOffset = Number(req.query.offset);
+
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0
+        ? Math.min(Math.floor(rawLimit), maxLimit)
+        : defaultLimit;
+
+    const offset = Number.isFinite(rawOffset) && rawOffset > 0
+        ? Math.floor(rawOffset)
+        : 0;
+
+    return { limit, offset };
+}
+
+module.exports = {
+    HttpError, badRequest, unauthorized, notFound, conflict, parseSeats, readPagination
+};
