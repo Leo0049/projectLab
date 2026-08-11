@@ -37,6 +37,10 @@ module.exports = {
      * 簽章演算法沿用綠界 ECPay 的 CheckMacValue 規則，
      * 之後要換成真的金流商，只需要新增一個 provider 並填入正式的金鑰。
      * -------------------------------------------------------------- */
+    // 對外網址。未設定時由請求的 Host 標頭推導——但 Host 是可被偽造的，
+    // 正式環境請明確設定，金流的回調與返回網址才不會被牽著走。
+    PUBLIC_URL: process.env.PUBLIC_URL || '',
+
     PAYMENT_PROVIDER: process.env.PAYMENT_PROVIDER || 'sandbox',
     PAYMENT_MERCHANT_ID: process.env.PAYMENT_MERCHANT_ID || '3002607',
     PAYMENT_HASH_KEY: process.env.PAYMENT_HASH_KEY || 'pwFHCqoQZGmho4w6',

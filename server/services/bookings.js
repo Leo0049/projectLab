@@ -313,8 +313,18 @@ const useTicket = writeTransaction((ticketId, userId) => {
     `).get(ticketId, userId);
 
     if (!ticket) throw notFound('找不到這張票券');
-    if (ticket.status === 'used') throw badRequest('這張票券已經使用過了');
     if (ticket.status === 'using') return { alreadyUsing: true };
+
+    // 用白名單而不是逐一排除：新增狀態時不會不小心讓它變成可使用。
+    // 特別是 refunded——退票後座位可能已經賣給別人，若讓它回到 using，
+    // 不只是讓已退款的票還能進場，還會撞上座位的唯一索引直接噴 500。
+    if (ticket.status !== 'unused') {
+        const reason = {
+            used: '這張票券已經使用過了',
+            refunded: '這張票券已退票，無法使用'
+        }[ticket.status] || '這張票券目前無法使用';
+        throw badRequest(reason);
+    }
 
     db.prepare('UPDATE booking_seats SET status = \'using\', used_at = ? WHERE id = ?')
         .run(Date.now(), ticketId);

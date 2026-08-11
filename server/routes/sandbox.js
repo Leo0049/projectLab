@@ -18,6 +18,33 @@ const router = express.Router();
  * 送出的參數與簽章規則完全相同。
  */
 
+/**
+ * 只接受指向本站的網址，其餘一律退回預設值。
+ *
+ * 沙盒扮演的是「外部金流商」，但它其實跑在我們自己的伺服器上。
+ * 如果照單全收表單傳來的網址，就會開兩個洞：
+ *   - ReturnURL：伺服器會對任意網址發出 POST（SSRF）
+ *   - ClientBackURL：使用者會被導向任意網站（開放轉址，可用於釣魚）
+ *
+ * @param {import('express').Request} req
+ * @param {string} candidate - 表單傳來的網址
+ * @param {string} fallbackPath - 不合法時要用的本站路徑
+ * @returns {string} 絕對網址
+ */
+function resolveLocalUrl(req, candidate, fallbackPath) {
+    const origin = `${req.protocol}://${req.get('host')}`;
+    const fallback = new URL(fallbackPath, origin).toString();
+
+    if (!candidate) return fallback;
+
+    try {
+        const url = new URL(candidate, origin);
+        return url.origin === origin ? url.toString() : fallback;
+    } catch (error) {
+        return fallback;
+    }
+}
+
 function escapeHtml(value) {
     return String(value ?? '')
         .replace(/&/g, '&amp;')
@@ -151,8 +178,10 @@ router.post('/checkout', (req, res) => {
 
             <form method="POST" action="/sandbox/pay" class="actions">
                 <input type="hidden" name="MerchantTradeNo" value="${escapeHtml(orderNo)}">
-                <input type="hidden" name="ClientBackURL" value="${escapeHtml(params.ClientBackURL || '/')}">
-                <input type="hidden" name="ReturnURL" value="${escapeHtml(params.ReturnURL || '')}">
+                <input type="hidden" name="ClientBackURL"
+                       value="${escapeHtml(resolveLocalUrl(req, params.ClientBackURL, '/'))}">
+                <input type="hidden" name="ReturnURL"
+                       value="${escapeHtml(resolveLocalUrl(req, params.ReturnURL, '/api/payments/webhook'))}">
                 <button type="submit" name="result" value="success" class="btn-pay" id="sandbox-pay-success">
                     模擬付款成功
                 </button>
@@ -182,30 +211,30 @@ router.post('/pay', async (req, res, next) => {
     try {
         const orderNo = String(req.body?.MerchantTradeNo || '');
         const success = req.body?.result === 'success';
-        const clientBackUrl = String(req.body?.ClientBackURL || '/');
-        const returnUrl = String(req.body?.ReturnURL || '');
+
+        // 兩個網址都必須指向本站，否則退回預設值
+        const returnUrl = resolveLocalUrl(req, req.body?.ReturnURL, '/api/payments/webhook');
+        const clientBackUrl = resolveLocalUrl(req, req.body?.ClientBackURL, '/');
 
         const callbackParams = paymentService.buildSandboxCallback(orderNo, success);
 
         // 伺服器對伺服器通知
-        if (returnUrl) {
-            try {
-                await fetch(returnUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams(callbackParams).toString()
-                });
-            } catch (error) {
-                console.error('沙盒回調失敗:', error);
-            }
+        try {
+            await fetch(returnUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams(callbackParams).toString()
+            });
+        } catch (error) {
+            console.error('沙盒回調失敗:', error);
         }
 
         // 導回特店
-        const separator = clientBackUrl.includes('?') ? '&' : '?';
-        const backUrl = `${clientBackUrl}${separator}order=${encodeURIComponent(orderNo)}` +
-            `&result=${success ? 'success' : 'fail'}`;
+        const backUrl = new URL(clientBackUrl);
+        backUrl.searchParams.set('order', orderNo);
+        backUrl.searchParams.set('result', success ? 'success' : 'fail');
 
-        res.redirect(303, backUrl);
+        res.redirect(303, backUrl.toString());
     } catch (error) {
         next(error);
     }

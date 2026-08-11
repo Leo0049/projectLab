@@ -11,6 +11,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFile } = require('child_process');
+const http = require('http');
 
 const TMP_DB = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ft-test-')), 'test.db');
 process.env.DB_PATH = TMP_DB;
@@ -423,6 +424,81 @@ async function main() {
     const otherOrder = await api('GET', `/api/payments/orders/${orderNo2}`, { token: alice });
     check('不能查詢別人的金流訂單 (404)', otherOrder.status === 404, `status=${otherOrder.status}`);
 
+
+    /* ---------------- 金流：邊界與濫用 ---------------- */
+    console.log('\n# 金流：逾時與網址驗證');
+
+    // 逾時之後才付款成功，仍然要入帳，否則使用者付了錢卻拿不到
+    const lateOrder = await api('POST', '/api/payments/deposit', { token, body: { amount: 300 } });
+    const lateOrderNo = lateOrder.data.formData.MerchantTradeNo;
+
+    getDb().prepare('UPDATE payment_orders SET expires_at = ? WHERE merchant_order_no = ?')
+        .run(Date.now() - 1000, lateOrderNo);
+    await api('GET', `/api/payments/orders/${lateOrderNo}`, { token });   // 觸發惰性逾時
+    const expiredStatus = getDb()
+        .prepare('SELECT status FROM payment_orders WHERE merchant_order_no = ?')
+        .get(lateOrderNo).status;
+    check('逾時未付款的訂單標記為 expired', expiredStatus === 'expired', expiredStatus);
+
+    const beforeLate = (await api('GET', '/api/auth/me', { token })).data.user.balance;
+    const lateParams = {
+        MerchantID: payCfg.PAYMENT_MERCHANT_ID,
+        MerchantTradeNo: lateOrderNo,
+        TradeNo: 'SBLATE',
+        TradeAmt: '300',
+        RtnCode: '1',
+        RtnMsg: '交易成功'
+    };
+    lateParams.CheckMacValue = signParams(lateParams, payCfg.PAYMENT_HASH_KEY, payCfg.PAYMENT_HASH_IV);
+    await fetch(`${BASE}/api/payments/webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(lateParams).toString()
+    });
+    const afterLate = (await api('GET', '/api/auth/me', { token })).data.user.balance;
+    check('逾時後才付款成功仍會入帳', afterLate === beforeLate + 300,
+        `${beforeLate} → ${afterLate}`);
+
+    // 沙盒的 ReturnURL 不可指向外部（SSRF）
+    let externalHit = false;
+    const evilServer = http.createServer((q, s) => { externalHit = true; s.end('ok'); });
+    await new Promise(resolve => evilServer.listen(0, '127.0.0.1', resolve));
+    const evilUrl = `http://127.0.0.1:${evilServer.address().port}/internal`;
+
+    const ssrfOrder = await api('POST', '/api/payments/deposit', { token, body: { amount: 300 } });
+    await fetch(`${BASE}/sandbox/pay`, {
+        method: 'POST',
+        redirect: 'manual',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            MerchantTradeNo: ssrfOrder.data.formData.MerchantTradeNo,
+            result: 'success',
+            ReturnURL: evilUrl,
+            ClientBackURL: '/'
+        }).toString()
+    });
+    await new Promise(resolve => setTimeout(resolve, 300));
+    check('ReturnURL 指向外部時不會發出請求（SSRF）', externalHit === false);
+    evilServer.close();
+
+    // 外部 ClientBackURL 不可被當成轉址目標（open redirect）
+    const redirectOrder = await api('POST', '/api/payments/deposit', { token, body: { amount: 300 } });
+    const redirectRes = await fetch(`${BASE}/sandbox/pay`, {
+        method: 'POST',
+        redirect: 'manual',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            MerchantTradeNo: redirectOrder.data.formData.MerchantTradeNo,
+            result: 'success',
+            ReturnURL: '',
+            ClientBackURL: 'https://evil.example.com/phish'
+        }).toString()
+    });
+    const location = redirectRes.headers.get('location') || '';
+    check('ClientBackURL 指向外部時不會轉址過去',
+        !location.startsWith('https://evil.example.com'), location);
+    check('外部轉址會退回本站', location.startsWith(BASE), location);
+
     /* ---------------- 退票 ---------------- */
     console.log('\n# 退票');
 
@@ -473,6 +549,36 @@ async function main() {
         'SELECT COUNT(*) AS n FROM booking_seats WHERE showtime_id = ? AND seat_row = ? AND seat_col = ?'
     ).get(showtimeId, seatToFree.row, seatToFree.col).n;
     check('同一座位同時存在退票與新售出紀錄', refundedRowCount === 2, `count=${refundedRowCount}`);
+
+
+    // 退票後的票券不能再拿去使用（會讓已退款的票進場，且可能撞上座位唯一索引）
+    const refundedUse = await api('POST', `/api/tickets/${refundable.id}/use`, { token });
+    check('已退票的票券不能使用 (400)', refundedUse.status === 400, `status=${refundedUse.status}`);
+
+    const refundedStatus = getDb()
+        .prepare('SELECT status FROM booking_seats WHERE id = ?').get(refundable.id).status;
+    check('已退票票券的狀態未被改動', refundedStatus === 'refunded', refundedStatus);
+
+    // 同一張票同時發出多個退票請求，只能成功一次
+    const raceBooking = await api('POST', '/api/bookings', {
+        token, body: { showtimeId, seats: [{ row: 1, col: 2 }] }
+    });
+    check('建立用於併發退票測試的訂單', raceBooking.status === 201, `status=${raceBooking.status}`);
+
+    const raceTicket = (await api('GET', '/api/tickets', { token }))
+        .data.active.find(t => t.seatLabel === 'A2');
+    const balanceBeforeRace = (await api('GET', '/api/auth/me', { token })).data.user.balance;
+
+    const raceResults = await Promise.all(Array.from({ length: 8 }, () =>
+        api('POST', `/api/tickets/${raceTicket.id}/refund`, { token })
+    ));
+    const raceWins = raceResults.filter(r => r.status === 200).length;
+    const balanceAfterRace = (await api('GET', '/api/auth/me', { token })).data.user.balance;
+
+    check('併發退票只成功一次', raceWins === 1, `成功=${raceWins}`);
+    check('併發退票不會重複退款',
+        balanceAfterRace === balanceBeforeRace + raceTicket.refundAmount,
+        `${balanceBeforeRace} → ${balanceAfterRace}`);
 
     /* ---------------- 管理後台 ---------------- */
     console.log('\n# 管理後台');
