@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const config = require('../config');
 const { requireAuth } = require('../middleware/auth');
 const { badRequest } = require('../utils/http');
 const paymentService = require('../services/payments');
@@ -8,10 +9,11 @@ const paymentService = require('../services/payments');
 const router = express.Router();
 
 /**
- * 取得本站對外的網址，用來組回調與返回網址
+ * 取得本站對外的網址，用來組金流的回調與返回網址。
+ * 優先使用設定值；沒設定才退回以 Host 標頭推導。
  */
 function originOf(req) {
-    return `${req.protocol}://${req.get('host')}`;
+    return config.PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
 }
 
 /**

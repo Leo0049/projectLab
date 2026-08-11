@@ -31,7 +31,7 @@ npm start
 
 ```bash
 npx playwright install chromium   # 只有第一次需要
-npm test          # 後端 86 項 + 瀏覽器 83 項
+npm test          # 後端 96 項 + 瀏覽器 83 項
 npm run test:api  # 只跑後端
 npm run test:e2e  # 只跑瀏覽器
 ```
@@ -141,7 +141,9 @@ POST /api/payments/deposit      建立 pending 訂單，回傳已簽章的表單
 |---|---|
 | 偽造回調 | 簽章驗證失敗直接 400，不入帳 |
 | 竄改金額 | 以我方訂單金額為準，回調金額不符就標記失敗 |
-| 重複通知 | 訂單進入終態後不再變更，金流商重送也只入帳一次 |
+| 重複通知 | 訂單進入終態（paid / failed）後不再變更，金流商重送也只入帳一次 |
+| 逾時後才付款 | `expired` 是我方自訂的逾時，不代表金流商沒收到錢，仍會入帳並留下警告 |
+| SSRF / 開放轉址 | 回調與返回網址一律驗證為本站，外部網址退回預設值 |
 
 要換成真的綠界／藍新：刪掉 `server/routes/sandbox.js`，把 `createDepositOrder()`
 裡的 `action` 改成金流商網址，填入正式的 MerchantID 與金鑰即可，參數與簽章規則不用動。
@@ -317,6 +319,7 @@ payment_orders  金流訂單（pending / paid / failed / expired）
 | 變數 | 預設 | 說明 |
 |---|---|---|
 | `PORT` | `3000` | 伺服器連接埠 |
+| `PUBLIC_URL` | 由 Host 標頭推導 | 對外網址。Host 可被偽造，正式環境請明確設定 |
 | `JWT_SECRET` | 開發用預設值 | **正式環境必須設定**，未設定時伺服器會拒絕啟動 |
 | `DB_PATH` | `server/data/faketheater.db` | 資料庫檔案位置 |
 | `SEAT_LOCK_TTL_MS` | `300000` | 座位保留時間 |

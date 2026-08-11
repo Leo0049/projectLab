@@ -22,7 +22,14 @@ const { createCheckMacValue, verifyCheckMacValue } = require('../payments/signat
  * 因此金流商重送通知也不會重複入帳。
  */
 
-const TERMINAL_STATUSES = new Set(['paid', 'failed', 'expired']);
+/**
+ * 已經有結論、不該再被回調改變的狀態。
+ *
+ * 注意 expired 不在其中：那是「我方自己判定的逾時」，不代表金流商那邊沒收到錢。
+ * 使用者在付款頁停留太久才完成付款是很常見的情況，
+ * 如果把 expired 當成終態，就會發生「使用者付了錢卻沒入帳」。
+ */
+const TERMINAL_STATUSES = new Set(['paid', 'failed']);
 
 /**
  * 產生我方訂單編號。金流商通常限制英數且有長度上限。
@@ -146,6 +153,11 @@ const handleCallback = writeTransaction((params) => {
             UPDATE payment_orders SET status = 'failed', callback_raw = ? WHERE id = ?
         `).run(callbackRaw, order.id);
         throw conflict('付款金額與訂單不符');
+    }
+
+    // 逾時之後才付款成功：錢確實收了，還是要入帳，只是留個紀錄方便對帳
+    if (order.status === 'expired') {
+        console.warn(`[payments] 訂單 ${merchantOrderNo} 逾時後才收到付款成功通知，仍予以入帳`);
     }
 
     db.prepare(`
