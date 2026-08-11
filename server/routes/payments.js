@@ -1,20 +1,12 @@
 'use strict';
 
 const express = require('express');
-const config = require('../config');
 const { requireAuth } = require('../middleware/auth');
-const { badRequest } = require('../utils/http');
+const { badRequest, readPagination } = require('../utils/http');
+const { publicOrigin } = require('../utils/urls');
 const paymentService = require('../services/payments');
 
 const router = express.Router();
-
-/**
- * 取得本站對外的網址，用來組金流的回調與返回網址。
- * 優先使用設定值；沒設定才退回以 Host 標頭推導。
- */
-function originOf(req) {
-    return config.PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
-}
 
 /**
  * POST /api/payments/deposit
@@ -26,7 +18,7 @@ router.post('/deposit', requireAuth, (req, res) => {
         throw badRequest('請輸入有效的儲值金額');
     }
 
-    const order = paymentService.createDepositOrder(req.user.id, amount, originOf(req));
+    const order = paymentService.createDepositOrder(req.user.id, amount, publicOrigin(req));
     res.status(201).json(order);
 });
 
@@ -40,6 +32,13 @@ router.post('/deposit', requireAuth, (req, res) => {
  */
 router.post('/webhook', (req, res) => {
     const result = paymentService.handleCallback(req.body || {});
+
+    // 金額不符是異常狀況：訂單已標記為 failed（該筆交易有提交），
+    // 但要讓金流商知道我方不接受這筆通知
+    if (result.reason === 'amount_mismatch') {
+        return res.status(409).type('text/plain').send('0|FAIL');
+    }
+
     res.type('text/plain').send(result.status === 'paid' || result.alreadyProcessed ? '1|OK' : '0|FAIL');
 });
 
@@ -55,9 +54,7 @@ router.get('/orders/:orderNo', requireAuth, (req, res) => {
  * GET /api/payments/orders?limit=&offset=
  */
 router.get('/orders', requireAuth, (req, res) => {
-    const limit = Math.min(Number(req.query.limit) || 20, 50);
-    const offset = Math.max(Number(req.query.offset) || 0, 0);
-    res.json(paymentService.listOrders(req.user.id, { limit, offset }));
+    res.json(paymentService.listOrders(req.user.id, readPagination(req, { maxLimit: 50 })));
 });
 
 module.exports = router;

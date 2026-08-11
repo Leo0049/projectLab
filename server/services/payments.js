@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const { getDb, writeTransaction } = require('../db');
 const config = require('../config');
-const { badRequest, notFound, conflict } = require('../utils/http');
+const { badRequest, notFound } = require('../utils/http');
 const { createCheckMacValue, verifyCheckMacValue } = require('../payments/signature');
 
 /**
@@ -18,8 +18,8 @@ const { createCheckMacValue, verifyCheckMacValue } = require('../payments/signat
  *      ├────付款失敗──> failed
  *      └────逾時未付──> expired
  *
- * 已經是終態（paid / failed / expired）的訂單不會再被回調改變，
- * 因此金流商重送通知也不會重複入帳。
+ * 已經是終態的訂單不會再被回調改變，因此金流商重送通知也不會重複入帳。
+ * 哪些狀態算終態見下方 TERMINAL_STATUSES。
  */
 
 /**
@@ -146,13 +146,22 @@ const handleCallback = writeTransaction((params) => {
         return { orderNo: merchantOrderNo, status: 'failed', alreadyProcessed: false };
     }
 
-    // 金額以我方訂單為準，回調金額不符就視為異常
+    // 金額以我方訂單為準，回調金額不符就視為異常。
+    //
+    // 這裡不能 throw：整個函式包在一筆交易裡，拋出例外會把上面剛寫的 failed
+    // 一起回滾，訂單又變回 pending、之後還能再被付款。
+    // 改成正常回傳，讓交易提交，由路由層決定回什麼狀態碼。
     const paidAmount = Number(params.TradeAmt);
     if (paidAmount !== order.amount) {
         db.prepare(`
             UPDATE payment_orders SET status = 'failed', callback_raw = ? WHERE id = ?
         `).run(callbackRaw, order.id);
-        throw conflict('付款金額與訂單不符');
+        return {
+            orderNo: merchantOrderNo,
+            status: 'failed',
+            reason: 'amount_mismatch',
+            alreadyProcessed: false
+        };
     }
 
     // 逾時之後才付款成功：錢確實收了，還是要入帳，只是留個紀錄方便對帳

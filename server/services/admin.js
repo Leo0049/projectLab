@@ -170,11 +170,21 @@ const deleteShowtime = writeTransaction((showtimeId) => {
         throw notFound('找不到這個場次');
     }
 
-    const sold = db.prepare(
-        "SELECT COUNT(*) AS n FROM booking_seats WHERE showtime_id = ? AND status != 'refunded'"
-    ).get(showtimeId).n;
+    // 已退票的座位仍然是 booking_seats／bookings 的一列，外鍵照樣擋著，
+    // 只看「未退票」的數量會讓全數退票的場次在刪除時噴 FOREIGN KEY 500。
+    const seats = db.prepare(`
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN status != 'refunded' THEN 1 ELSE 0 END) AS active
+        FROM booking_seats WHERE showtime_id = ?
+    `).get(showtimeId);
 
-    if (sold > 0) throw conflict(`這個場次已售出 ${sold} 張票，無法刪除`);
+    if (seats.total > 0) {
+        const active = seats.active || 0;
+        throw conflict(active > 0
+            ? `這個場次已售出 ${active} 張票，無法刪除`
+            : '這個場次有退票紀錄，為保留對帳資料無法刪除');
+    }
 
     db.prepare('DELETE FROM seat_locks WHERE showtime_id = ?').run(showtimeId);
     db.prepare('DELETE FROM showtimes WHERE id = ?').run(showtimeId);
@@ -235,7 +245,7 @@ function listUsers({ limit = 20, offset = 0 } = {}) {
     const users = db.prepare(`
         SELECT u.id, u.username, u.email, u.balance, u.role, u.created_at AS createdAt,
                (SELECT COUNT(*) FROM bookings b WHERE b.user_id = u.id) AS bookingCount,
-               (SELECT COALESCE(SUM(bs.id IS NOT NULL), 0)
+               (SELECT COUNT(*)
                   FROM booking_seats bs
                   JOIN bookings b2 ON b2.id = bs.booking_id
                  WHERE b2.user_id = u.id AND bs.status != 'refunded') AS ticketCount

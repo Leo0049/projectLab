@@ -2,7 +2,7 @@
 
 const express = require('express');
 const { getDb } = require('../db');
-const { notFound } = require('../utils/http');
+const { notFound, readPagination } = require('../utils/http');
 const { toLocalDateStr, toLocalTimeStr } = require('../utils/dates');
 
 const router = express.Router();
@@ -88,8 +88,7 @@ router.get('/showtimes', (req, res) => {
 
     // 有給 limit 才分頁；時刻表與電影詳情需要一次拿完，就不帶 limit
     const paginated = req.query.limit !== undefined;
-    params.limit = Math.min(Number(req.query.limit) || 20, 100);
-    params.offset = Math.max(Number(req.query.offset) || 0, 0);
+    Object.assign(params, readPagination(req, { defaultLimit: 20, maxLimit: 100 }));
 
     const showtimes = db.prepare(`
         SELECT s.id, s.movie_id AS movieId, s.theater_id AS theaterId,

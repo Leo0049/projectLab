@@ -50,6 +50,28 @@ function requireAuth(req, res, next) {
 }
 
 /**
+ * 選擇性登入：帶了有效權杖就填入 req.user，沒帶或無效也放行。
+ * 用在「未登入也能看，但登入後會多一些資訊」的端點，例如座位圖要分辨
+ * 哪些位子是自己保留的。
+ */
+function optionalAuth(req, res, next) {
+    const token = readToken(req);
+    if (!token) return next();
+
+    try {
+        const payload = jwt.verify(token, config.JWT_SECRET);
+        const user = getDb()
+            .prepare('SELECT id, username, email, balance, role FROM users WHERE id = ?')
+            .get(payload.sub);
+        if (user) req.user = user;
+    } catch (error) {
+        // 權杖無效就當作未登入，不擋下請求
+    }
+
+    next();
+}
+
+/**
  * 必須是管理員。角色一律從資料庫讀取，不看權杖裡的內容——
  * 權限被撤銷時不需要等舊權杖過期。
  */
@@ -61,4 +83,4 @@ function requireAdmin(req, res, next) {
     next();
 }
 
-module.exports = { signToken, requireAuth, requireAdmin };
+module.exports = { signToken, requireAuth, optionalAuth, requireAdmin };

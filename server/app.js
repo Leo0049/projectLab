@@ -50,8 +50,11 @@ function createApp() {
     app.use('/api/payments', paymentRoutes);
     app.use('/api/admin', adminRoutes);
 
-    // 模擬的第三方金流商（正式環境改接綠界後整組可刪除）
-    app.use('/sandbox', sandboxRoutes);
+    // 模擬的第三方金流商。只有在真的使用沙盒金流時才掛載——
+    // 換成正式金流商後這組路由就不該存在，否則會變成不用付錢就能加值的入口。
+    if (config.PAYMENT_PROVIDER === 'sandbox') {
+        app.use('/sandbox', sandboxRoutes);
+    }
 
     // 前端靜態檔案
     app.use(express.static(config.STATIC_DIR, { extensions: ['html'] }));

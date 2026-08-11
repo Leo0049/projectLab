@@ -2,7 +2,7 @@
 
 const express = require('express');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
-const { badRequest } = require('../utils/http');
+const { badRequest, readPagination } = require('../utils/http');
 const adminService = require('../services/admin');
 const bookingService = require('../services/bookings');
 
@@ -12,10 +12,7 @@ const router = express.Router();
 router.use(requireAuth, requireAdmin);
 
 function pagination(req) {
-    return {
-        limit: Math.min(Number(req.query.limit) || 20, 100),
-        offset: Math.max(Number(req.query.offset) || 0, 0)
-    };
+    return readPagination(req, { defaultLimit: 20, maxLimit: 100 });
 }
 
 /**

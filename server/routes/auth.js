@@ -64,7 +64,7 @@ router.post('/login', (req, res) => {
     if (!username || !password) throw badRequest('請填寫用戶名與密碼');
 
     const row = getDb()
-        .prepare('SELECT id, username, email, password_hash, balance FROM users WHERE username = ?')
+        .prepare('SELECT id, username, email, password_hash, balance, role FROM users WHERE username = ?')
         .get(username);
 
     // 帳號不存在與密碼錯誤回同一句話，避免被拿來列舉帳號

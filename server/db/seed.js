@@ -7,7 +7,11 @@ const { getDb, writeTransaction } = require('./index');
 const config = require('../config');
 const { toLocalDateStr } = require('../utils/dates');
 
-const DATA_DIR = path.join(__dirname, '..', '..', 'FakeTheater', 'data');
+/**
+ * 種子資料放在伺服器端，不能放進 FakeTheater/（那整個目錄是靜態公開的），
+ * 否則 users.json 裡的明文密碼會直接被 GET 到。
+ */
+const DATA_DIR = path.join(__dirname, 'seed-data');
 
 function readJson(name) {
     return JSON.parse(fs.readFileSync(path.join(DATA_DIR, name), 'utf8'));
