@@ -15,6 +15,24 @@ function numberEnv(value, fallback) {
 }
 
 /**
+ * 讀取 Express 的 trust proxy 設定。
+ *
+ * 平台的反向代理（Render、Fly、Nginx…）會把原始通訊協定放在 X-Forwarded-Proto，
+ * 沒開這個設定的話 req.protocol 永遠是 http，對外網址就會組成 http:// 而被瀏覽器擋掉。
+ * 反過來說，沒有代理時開啟它等於讓任何人偽造來源 IP，所以預設關閉、由部署方明確開啟。
+ *
+ * 接受：數字（信任幾層代理）、'true'/'false'、或 Express 支援的字串（如 'loopback'）。
+ * @param {string|undefined} value
+ */
+function trustProxyEnv(value) {
+    if (value === undefined || value === '') return false;
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    const hops = Number(value);
+    return Number.isInteger(hops) && hops >= 0 ? hops : value;
+}
+
+/**
  * 伺服器設定。正式環境請務必用環境變數覆寫 JWT_SECRET。
  */
 module.exports = {
@@ -25,6 +43,13 @@ module.exports = {
     JWT_EXPIRES_IN: '7d',
 
     DB_PATH: process.env.DB_PATH || path.join(__dirname, 'data', 'faketheater.db'),
+
+    // 部署在反向代理後方時設為 1（或代理層數）
+    TRUST_PROXY: trustProxyEnv(process.env.TRUST_PROXY),
+
+    // 管理員密碼。未設定時沿用 seed-data 的預設值（僅供本機開發），
+    // 正式環境沒設定就拒絕啟動——公開網址上的後台不能用 README 寫著的密碼進得去。
+    ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || '',
 
     // 前端靜態檔案目錄
     STATIC_DIR: path.join(__dirname, '..', 'FakeTheater'),

@@ -4,6 +4,11 @@ node_modules/
 # SQLite 資料庫（執行時自動建立，不進版控）
 server/data/
 
+# 本機環境變數（範本是 .env.example）
+.env
+.env.*
+!.env.example
+
 # 作業系統
 .DS_Store
 Thumbs.db

@@ -37,6 +37,13 @@ function createApp() {
     const app = express();
 
     app.disable('x-powered-by');
+
+    // 部署在反向代理後方時，才讓 Express 相信 X-Forwarded-* 標頭。
+    // 這只影響 req.protocol / req.ip；金流回調用的是 socket 的實際位址，不受影響。
+    if (config.TRUST_PROXY !== false) {
+        app.set('trust proxy', config.TRUST_PROXY);
+    }
+
     app.use(express.json({ limit: '64kb' }));
     // 金流回調與沙盒付款頁是表單格式，不是 JSON
     app.use(express.urlencoded({ extended: false, limit: '64kb' }));

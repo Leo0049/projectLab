@@ -73,6 +73,31 @@ function runConfigProbe(env) {
     });
 }
 
+/**
+ * 直接啟動 server/index.js，回傳它的結束碼與 stderr。
+ * 用來驗證正式環境的啟動前檢查——那段程式碼在 initDatabase 之前，
+ * 所以只要設定不合格就會直接結束，不會真的建立資料庫或佔用連接埠。
+ * @param {Object} env - 要覆寫的環境變數
+ * @returns {Promise<{code: number, stderr: string}>}
+ */
+function runStartup(env) {
+    // 這幾個是檢查的對象，不能從測試行程繼承進去
+    const base = { ...process.env, DB_PATH: path.join(path.dirname(TMP_DB), 'startup.db') };
+    delete base.NODE_ENV;
+    delete base.JWT_SECRET;
+    delete base.ADMIN_PASSWORD;
+
+    return new Promise(resolve => {
+        const child = execFile('node', [path.join(__dirname, '..', 'server', 'index.js')],
+            { env: { ...base, ...env }, timeout: 10000 },
+            (error, stdout, stderr) => {
+                resolve({ code: error?.code ?? 0, stderr: stderr || '' });
+            });
+        // 萬一檢查沒攔住而伺服器真的起來了，別讓測試卡在這裡
+        setTimeout(() => child.kill(), 5000).unref();
+    });
+}
+
 function runWorker(args) {
     return new Promise(resolve => {
         execFile('node', [path.join(__dirname, 'helpers', 'race-worker.js'), ...args],
@@ -835,6 +860,51 @@ async function main() {
 
     const liveEnv = await runConfigProbe({ PAYMENT_PROVIDER: 'ecpay' });
     check('改用正式金流商後沙盒路由不再掛載', liveEnv.sandboxMounted === false);
+
+    console.log('\n# 部署設定');
+
+    // 反向代理後方：沒開 TRUST_PROXY 時不能相信 X-Forwarded-Proto，
+    // 開了才會採信——否則對外網址一律組成 http://，在 https 站台上會被瀏覽器擋掉
+    const noProxyEnv = await runConfigProbe({ TRUST_PROXY: '' });
+    check('未設定 TRUST_PROXY 時不採信 X-Forwarded-Proto',
+        (noProxyEnv.forwardedBackUrl || '').startsWith('http://'),
+        noProxyEnv.forwardedBackUrl);
+
+    const proxyEnv = await runConfigProbe({ TRUST_PROXY: '1' });
+    check('TRUST_PROXY=1 會採信 X-Forwarded-Proto',
+        (proxyEnv.forwardedBackUrl || '').startsWith('https://'),
+        proxyEnv.forwardedBackUrl);
+
+    // 公開部署時，種子資料裡那組寫在 README 上的管理員密碼必須失效
+    const adminPwEnv = await runConfigProbe({ ADMIN_PASSWORD: 'a-strong-deploy-password' });
+    check('設定 ADMIN_PASSWORD 後，預設的 admin123 無法登入',
+        adminPwEnv.adminDefaultPasswordStatus === 401,
+        `status=${adminPwEnv.adminDefaultPasswordStatus}`);
+    check('設定 ADMIN_PASSWORD 後，新密碼可以登入',
+        adminPwEnv.adminConfiguredPasswordStatus === 200,
+        `status=${adminPwEnv.adminConfiguredPasswordStatus}`);
+
+    // 掛了持久化磁碟時資料庫已經存在，換密碼走的是 UPDATE 而不是 INSERT
+    const adminPwExisting = await runConfigProbe({
+        ADMIN_PASSWORD: 'a-strong-deploy-password',
+        PROBE_PRESEED_ADMIN: '1'
+    });
+    check('資料庫已存在時，ADMIN_PASSWORD 仍會覆寫舊密碼',
+        adminPwExisting.adminDefaultPasswordStatus === 401 &&
+        adminPwExisting.adminConfiguredPasswordStatus === 200,
+        `default=${adminPwExisting.adminDefaultPasswordStatus} ` +
+        `configured=${adminPwExisting.adminConfiguredPasswordStatus}`);
+
+    // 正式環境沿用原始碼裡的預設值等於沒有防護，伺服器必須拒絕啟動
+    const noSecret = await runStartup({ NODE_ENV: 'production', ADMIN_PASSWORD: 'x' });
+    check('正式環境缺少 JWT_SECRET 會拒絕啟動',
+        noSecret.code === 1 && noSecret.stderr.includes('JWT_SECRET'),
+        `code=${noSecret.code} stderr=${noSecret.stderr.trim()}`);
+
+    const noAdminPw = await runStartup({ NODE_ENV: 'production', JWT_SECRET: 'x' });
+    check('正式環境缺少 ADMIN_PASSWORD 會拒絕啟動',
+        noAdminPw.code === 1 && noAdminPw.stderr.includes('ADMIN_PASSWORD'),
+        `code=${noAdminPw.code} stderr=${noAdminPw.stderr.trim()}`);
 
     /* ---------------- 收尾 ---------------- */
     server.close();

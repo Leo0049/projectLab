@@ -70,6 +70,10 @@ const seedCatalog = writeTransaction(() => {
 /**
  * 建立展示帳號。密碼在這裡才做 hash，資料庫不會存明文。
  * 已存在的帳號不會被覆蓋，避免洗掉使用者自己改過的餘額。
+ *
+ * 例外是管理員：設定了 ADMIN_PASSWORD 就每次啟動都覆寫它的密碼。
+ * 種子檔裡的 admin123 寫在公開的原始碼與 README 裡，公開部署時必須換掉，
+ * 而「已存在就不動」會讓改設定完全不生效。
  */
 const seedDemoUsers = writeTransaction(() => {
     const db = getDb();
@@ -79,18 +83,28 @@ const seedDemoUsers = writeTransaction(() => {
     `);
     // 角色可能是後來才加的，既有帳號要補上
     const syncRole = db.prepare('UPDATE users SET role = ? WHERE id = ? AND role != ?');
+    const setPassword = db.prepare('UPDATE users SET password_hash = ? WHERE id = ?');
 
     readJson('users.json').forEach(user => {
         const role = user.role === 'admin' ? 'admin' : 'user';
-        insert.run({
+        const password = role === 'admin' && config.ADMIN_PASSWORD
+            ? config.ADMIN_PASSWORD
+            : user.password;
+
+        const inserted = insert.run({
             id: user.id,
             username: user.username,
             email: user.email || `${user.username}@faketheater.com`,
-            passwordHash: bcrypt.hashSync(user.password, 10),
+            passwordHash: bcrypt.hashSync(password, 10),
             balance: Math.round(user.balance || 0),
             role: role
-        });
+        }).changes > 0;
         syncRole.run(role, user.id, role);
+
+        // 帳號已經存在時 INSERT OR IGNORE 什麼也沒做，管理員密碼要另外補寫
+        if (!inserted && role === 'admin' && config.ADMIN_PASSWORD) {
+            setPassword.run(bcrypt.hashSync(config.ADMIN_PASSWORD, 10), user.id);
+        }
     });
 });
 

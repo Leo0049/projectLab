@@ -1,5 +1,9 @@
 # FakeTheater 電影購票系統
 
+<!-- 部署完成後把下面這行的註解拿掉，並換成實際網址：
+**線上展示：** https://你的網址 　|　展示帳號 `demo` / `demo123`
+-->
+
 ![首頁](docs/screenshot-home.png)
 
 全端電影購票系統。Node.js + Express + SQLite，前端原生 JavaScript + Bootstrap 5，無打包工具。
@@ -13,6 +17,8 @@
 | ![訂票](docs/screenshot-booking.png) | ![後台](docs/screenshot-admin.png) |
 
 ## 快速開始
+
+需要 Node.js 22 以上（`better-sqlite3` 13 的最低需求）。
 
 ```bash
 npm install
@@ -36,11 +42,15 @@ npm start
 資料庫裡不存明文。該檔案位於伺服器端而非公開目錄，不會被 HTTP 讀取
 （`tests/api.js` 有測試確認 `/data/users.json` 回 404）。
 
+`admin123` 只適用於本機。部署到公開網址時必須用環境變數 `ADMIN_PASSWORD` 換掉——
+它寫在原始碼與這份 README 裡，等於沒有密碼。設定後預設值就會失效，
+`NODE_ENV=production` 時沒設定則伺服器直接拒絕啟動。
+
 ### 執行測試
 
 ```bash
 npx playwright install chromium   # 只有第一次需要
-npm test          # 後端 120 項 + 瀏覽器 83 項
+npm test          # 後端 127 項 + 瀏覽器 83 項
 npm run test:api  # 只跑後端
 npm run test:e2e  # 只跑瀏覽器
 ```
@@ -81,6 +91,11 @@ tests/
   api.js                後端整合測試（含並發與安全性）
   e2e.js                瀏覽器端對端測試
   helpers/              並發測試的工作行程、設定探測子行程
+
+Dockerfile              兩階段建置，最終映像不含編譯工具鏈
+render.yaml             Render Blueprint
+fly.toml                Fly.io 設定
+.env.example            環境變數範本
 ```
 
 ## 座位並發控制
@@ -211,6 +226,8 @@ CREATE UNIQUE INDEX idx_booking_seats_unique
 | 輸入驗證 | 座位範圍、張數上限、金額上下限、分頁上下界都在伺服器檢查 |
 | XSS | 前端所有動態插入的內容都經過 `escapeHtml()` |
 | 錯誤回應 | 非預期錯誤只回通用訊息，不洩漏堆疊或 SQL |
+| 部署預設值 | 正式環境未設定 `JWT_SECRET` 或 `ADMIN_PASSWORD` 時拒絕啟動 |
+| 代理標頭 | 預設不信任 `X-Forwarded-*`，需由部署方明確開啟 `TRUST_PROXY` |
 
 ## API
 
@@ -333,16 +350,83 @@ payment_orders  金流訂單（pending / paid / failed / expired）
 
 ## 環境變數
 
+完整範本見 [`.env.example`](.env.example)。本機開發全部都有可用的預設值，不需要設定任何一個。
+
 | 變數 | 預設 | 說明 |
 |---|---|---|
-| `PORT` | `3000` | 伺服器連接埠 |
-| `PUBLIC_URL` | 由 Host 標頭推導 | 對外網址。Host 可被偽造，正式環境請明確設定 |
 | `JWT_SECRET` | 開發用預設值 | **正式環境必須設定**，未設定時伺服器會拒絕啟動 |
+| `ADMIN_PASSWORD` | 沿用種子資料 | **正式環境必須設定**，會覆寫管理員密碼並使 `admin123` 失效 |
+| `PUBLIC_URL` | 由 Host 標頭推導 | 對外網址。Host 可被偽造，正式環境請明確設定 |
+| `TRUST_PROXY` | 關閉 | 部署在反向代理後方時設為 `1`，才會採信 `X-Forwarded-Proto` |
 | `DB_PATH` | `server/data/faketheater.db` | 資料庫檔案位置 |
+| `PORT` | `3000` | 伺服器連接埠 |
 | `SEAT_LOCK_TTL_MS` | `300000` | 座位保留時間 |
 | `PAYMENT_PROVIDER` | `sandbox` | 改成其他值就不會掛載沙盒金流路由 |
+| `PAYMENT_ORDER_TTL_MS` | `900000` | 金流訂單多久未付款就失效 |
 | `REFUND_FEE_RATE` | `0.1` | 退票手續費比例，設 `0` 表示不收 |
 | `REFUND_CUTOFF_MINUTES` | `30` | 開演前幾分鐘停止受理退票 |
+
+想在本機用這些設定，Node 內建就能讀 `.env`，不需要額外套件：
+
+```bash
+cp .env.example .env    # 填好後
+node --env-file=.env server/index.js
+```
+
+## 部署
+
+專案沒有前端建置步驟，容器啟動後直接 `node server/index.js` 就是完整的站台。
+根目錄已備妥 [`Dockerfile`](Dockerfile)、[`render.yaml`](render.yaml)、[`fly.toml`](fly.toml)。
+
+映像分兩階段：第一階段安裝相依套件（`better-sqlite3` 是原生模組，
+沒有預編譯檔時需要編譯工具鏈），第二階段只帶走結果，
+最終映像約 98 MB、以非 root 的 `node` 使用者執行，並內建 `/api/health` 健康檢查。
+
+### Render
+
+後台 **New → Blueprint** 選這個 repo，它會讀 `render.yaml` 自動建立服務。
+`JWT_SECRET` 與 `ADMIN_PASSWORD` 由 Render 產生隨機值（在 Environment 頁面可以看到），
+部署完成後把拿到的網址填進 `PUBLIC_URL` 再重新部署一次即可。
+
+free 方案不支援持久化磁碟，重新部署或休眠後資料會回到種子狀態；
+對展示來說沒問題（每次啟動都會重新匯入電影並排入未來 7 天場次），
+要保留訂票紀錄的話把方案改成 starter 並解開 `render.yaml` 裡的 `disk` 區塊。
+另外 free 方案的服務閒置後會休眠，第一個訪客大約要等 50 秒才會看到頁面。
+
+### Fly.io
+
+```bash
+fly launch --no-deploy --copy-config
+fly volumes create faketheater_data --size 1 --region nrt
+fly secrets set JWT_SECRET="$(openssl rand -hex 32)" ADMIN_PASSWORD="你的密碼"
+fly secrets set PUBLIC_URL="https://你的app名稱.fly.dev"
+fly deploy
+```
+
+`fly.toml` 已掛好 `/data` 的 volume，資料跨部署保留。
+一顆 volume 只能給一台 machine 用，所以這個服務不要橫向擴充。
+
+### 本機用 Docker 跑一次
+
+```bash
+docker build -t faketheater .
+docker run -p 3000:3000 -v faketheater-data:/data \
+  -e JWT_SECRET="$(openssl rand -hex 32)" \
+  -e ADMIN_PASSWORD="local-admin" \
+  faketheater
+```
+
+### 部署時要注意的三件事
+
+- **`ADMIN_PASSWORD` 一定要設**。沒設定時 `NODE_ENV=production` 的伺服器會拒絕啟動，
+  這是刻意的——公開網址上的管理後台不能用 README 寫著的密碼進得去。
+  改設定後重新部署時，既有資料庫裡的舊密碼也會一併被覆寫。
+- **`TRUST_PROXY=1`**。平台的反向代理用 `X-Forwarded-Proto` 告知原始通訊協定，
+  不開這個的話 `req.protocol` 永遠是 `http`，金流表單的對外網址會組成 `http://`
+  而在 https 站台上被瀏覽器擋掉。反過來說，沒有代理時開著它等於讓任何人偽造來源 IP，
+  所以預設關閉、由部署方明確開啟。
+- **`DB_PATH` 要指向持久化磁碟的掛載點**。映像預設是 `/data/faketheater.db`，
+  沒掛磁碟也能跑，只是每次重新部署會回到種子資料。
 
 ## 技術決策
 
@@ -385,6 +469,26 @@ Node 是單執行緒，`better-sqlite3` 又是同步的，
 宣稱本身沒錯，卻給人錯誤的整體印象。
 現在每一列都有對應的測試，改壞了測試就會紅，而不是等別人發現。
 
+### 為什麼正式環境要「沒設定就拒絕啟動」
+
+`JWT_SECRET` 與 `ADMIN_PASSWORD` 的預設值都公開在原始碼裡。
+用預設值上線不會有任何錯誤訊息，站台看起來一切正常——
+只是任何人都能簽出合法的 token，或用 README 上的密碼進管理後台。
+這種「安靜地不安全」比啟動失敗糟得多，所以 `NODE_ENV=production`
+時直接讓行程結束，把問題推到部署當下而不是被人發現的時候。
+
+`ADMIN_PASSWORD` 還會覆寫既有資料庫裡的密碼。
+種子資料用的是 `INSERT OR IGNORE`（避免洗掉使用者改過的餘額），
+若管理員也照這個規則，掛了持久化磁碟之後改密碼就完全不會生效。
+
+### 為什麼 TRUST_PROXY 預設是關的
+
+`X-Forwarded-*` 是可以被任何人在請求裡寫上的標頭，
+它之所以可信，唯一的理由是「前面確實有一層代理會覆寫它」。
+預設開啟等於在沒有代理的環境下讓任何人偽造來源 IP 與通訊協定；
+預設關閉則只會讓對外網址組成 `http://`——後者一眼就看得出來，
+前者不會有任何徵兆。把它交給部署方明確宣告，是因為只有部署方知道答案。
+
 ### 測試通過不等於沒有 bug
 
 這個專案曾經在 179 項測試全綠的狀態下，被複查找出 9 個真實問題，
@@ -392,7 +496,7 @@ Node 是單執行緒，`better-sqlite3` 又是同步的，
 而那些問題都在「使用者慢了 15 分鐘才付款」「有人自己 POST 這個表單」
 「有人直接開這個網址」這類路徑上。
 
-修正時每一個都補了回歸測試，也因此後端測試從 44 項成長到 120 項——
+修正時每一個都補了回歸測試，也因此後端測試從 44 項成長到 127 項——
 其中相當比例是安全性與邊界情境，不是功能。
 
 ## 已知限制
