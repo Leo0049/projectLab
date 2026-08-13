@@ -1,0 +1,47 @@
+# Fly.io 部署設定
+#
+#   fly launch --no-deploy --copy-config   # 建立 app，沿用本檔案
+#   fly volumes create faketheater_data --size 1 --region nrt
+#   fly secrets set JWT_SECRET="$(openssl rand -hex 32)" ADMIN_PASSWORD="你的密碼"
+#   fly secrets set PUBLIC_URL="https://你的app名稱.fly.dev"
+#   fly deploy
+#
+# app 名稱請改成你自己註冊的（fly launch 會問）。
+
+app = "faketheater"
+primary_region = "nrt"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+  DB_PATH = "/data/faketheater.db"
+  # Fly 的 proxy 會送 X-Forwarded-Proto
+  TRUST_PROXY = "1"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  # 沒人用的時候自動停機，有請求再喚醒（免費額度友善，代價是冷啟動）
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/api/health"
+
+# SQLite 的資料檔。掛載後跨部署保留；
+# 注意一顆 volume 只能給一台 machine 用，所以這個服務不要橫向擴充。
+[[mounts]]
+  source = "faketheater_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

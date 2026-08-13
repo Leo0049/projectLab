@@ -1,0 +1,26 @@
+# 相依套件在映像內重新安裝（本機的可能是別的平台編譯出來的）
+node_modules/
+
+# 本機資料庫
+server/data/
+
+# 測試與文件不進映像
+tests/
+docs/
+README.md
+
+.git/
+.gitignore
+.github/
+
+.dockerignore
+Dockerfile
+render.yaml
+fly.toml
+.env
+.env.example
+
+.vscode/
+.idea/
+*.log
+.DS_Store

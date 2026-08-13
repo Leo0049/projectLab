@@ -1,0 +1,53 @@
+# Render Blueprint
+#
+# 使用方式：Render 後台 → New → Blueprint → 選這個 repo，
+# 它會讀取本檔案自動建立服務。建立後只需要手動補一個環境變數（見下方 PUBLIC_URL）。
+#
+# 服務起來後請到 Render 後台的 Environment 頁面複製 ADMIN_PASSWORD 的值，
+# 那是自動產生的隨機密碼，管理後台要用它登入。
+
+services:
+  - type: web
+    name: faketheater
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: singapore
+    healthCheckPath: /api/health
+
+    # free 方案不支援持久化磁碟，重新部署或服務休眠後資料會回到種子狀態。
+    # 對展示來說沒問題（每次啟動都會重新匯入電影並排入未來 7 天場次）。
+    # 想保留使用者訂票紀錄的話，把方案改成 starter 並解開下面這段：
+    #
+    # disk:
+    #   name: faketheater-data
+    #   mountPath: /data
+    #   sizeGB: 1
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # 對應 Dockerfile 裡的 /data；掛了磁碟就會落在磁碟上
+      - key: DB_PATH
+        value: /data/faketheater.db
+
+      # Render 的反向代理會送 X-Forwarded-Proto，
+      # 不開這個的話 req.protocol 會是 http，對外網址就組錯了
+      - key: TRUST_PROXY
+        value: "1"
+
+      # 由 Render 產生隨機值，不會出現在版控裡
+      - key: JWT_SECRET
+        generateValue: true
+
+      # 管理後台的密碼。預設讓 Render 隨機產生（值在 Environment 頁面可以看到）。
+      # 如果想在履歷或 README 上公開管理後台的登入方式，
+      # 把 generateValue 改成 value: 你想公開的密碼。
+      - key: ADMIN_PASSWORD
+        generateValue: true
+
+      # 第一次部署完成後，把 Render 給的網址（https://xxx.onrender.com）填進來。
+      # sync: false 代表這個值由後台手動填，不寫在版控裡。
+      - key: PUBLIC_URL
+        sync: false
