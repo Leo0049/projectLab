@@ -42,7 +42,7 @@ services:
         generateValue: true
 
       # 管理後台的密碼。預設讓 Render 隨機產生（值在 Environment 頁面可以看到）。
-      # 如果想在履歷或 README 上公開管理後台的登入方式，
+      # 若希望對外公開管理後台的登入方式，
       # 把 generateValue 改成 value: 你想公開的密碼。
       - key: ADMIN_PASSWORD
         generateValue: true
