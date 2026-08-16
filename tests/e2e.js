@@ -98,7 +98,15 @@ async function register(page, username, email, password) {
  * 在訂票頁選好電影／日期／場次，等座位圖出現
  * @returns {Promise<string>} 選到的場次文字
  */
-async function pickShowtime(page, movieId, dateIndex = 1) {
+/**
+ * 在訂票頁選定「電影 → 日期 → 場次」，等座位圖出現。
+ *
+ * dateIndex 預設是 2 而不是 1（index 0 是「請選擇日期」，1 是最近的一天）。
+ * 因為開演前 30 分鐘起不受理退票，選最近那天的話，只要測試剛好在首場前
+ * 半小時內執行，退票鍵就不會出現，退票與代客退票兩段會無故失敗。
+ * 那是測試選錯場次，不是程式壞了——往後挑一天就與執行時間無關。
+ */
+async function pickShowtime(page, movieId, dateIndex = 2) {
     await page.selectOption('#movie-select', movieId);
     await page.waitForFunction(() => !document.getElementById('date-select').disabled);
     await page.selectOption('#date-select', { index: dateIndex });
@@ -349,6 +357,7 @@ async function testAccountFlow(browser, errors) {
     console.log('\n# 儲值後完成購票');
     await page.goto(`${BASE}/booking.html`);
     await page.waitForSelector('#navbarDropdown', { timeout: 8000 });
+    // 這張票等一下要退，場次必須離現在夠遠（見 pickShowtime 的說明）
     await pickShowtime(page, '3');
     await page.locator('#seat-map .seat.available').first().click();
     await page.click('#confirm-booking');

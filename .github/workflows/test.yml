@@ -1,0 +1,34 @@
+name: 測試
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: 後端 + 瀏覽器測試
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # better-sqlite3 13 需要 Node 22
+          node-version: 22
+          cache: npm
+
+      - name: 安裝相依套件
+        run: npm ci
+
+      # e2e 需要真的瀏覽器；--with-deps 會一併補上 Chromium 的系統函式庫
+      - name: 安裝 Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: 後端整合測試
+        run: npm run test:api
+
+      - name: 瀏覽器端對端測試
+        run: npm run test:e2e
