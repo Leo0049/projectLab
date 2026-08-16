@@ -385,16 +385,82 @@ node --env-file=.env server/index.js
 沒有預編譯檔時需要編譯工具鏈），第二階段只帶走結果，
 最終映像約 98 MB、以非 root 的 `node` 使用者執行，並內建 `/api/health` 健康檢查。
 
+三個平台的取捨：
+
+| | 費用 | 冷啟動 | 休眠門檻 | 區域 | 資料保留 |
+|---|---|---|---|---|---|
+| **Koyeb**（推薦） | 免費 | 1–5 秒 | 1 小時 | 僅 fra／was | ✗ 重置 |
+| Render | 免費 | 約 60 秒 | 15 分鐘 | 含 Singapore | ✗ 重置 |
+| Fly.io | 約 $2.2／月 | 1–3 秒 | 可自訂 | 含東京 | ✓ volume |
+
+作品集連結最怕的是招募方點開之後看著空白頁等一分鐘，所以冷啟動的權重最高。
+兩個免費方案都不提供持久化磁碟，但對展示沒有影響——
+每次啟動都會重新匯入電影並排入未來 7 天場次，內容一定是完整的。
+
+### Koyeb（推薦）
+
+Koyeb 沒有像 `render.yaml` 那樣可以放進 repo 的設定檔，服務參數要在後台或 CLI 指定。
+
+**後台**：**Create Service → GitHub** 選這個 repo，然後：
+
+| 設定 | 值 |
+|---|---|
+| Builder | **Dockerfile** |
+| Instance | Free |
+| Region | Washington D.C.（`was`）或 Frankfurt（`fra`） |
+| Port | **3000**（預設是 8000，不改健康檢查會失敗） |
+| Health check | HTTP，路徑 `/api/health` |
+
+環境變數：
+
+```
+NODE_ENV=production
+TRUST_PROXY=1
+DB_PATH=/data/faketheater.db
+JWT_SECRET=（用 openssl rand -hex 32 產生，建議存成 Secret）
+ADMIN_PASSWORD=（你要用的管理員密碼）
+```
+
+**CLI**：
+
+```bash
+koyeb secrets create faketheater-jwt   --value "$(openssl rand -hex 32)"
+koyeb secrets create faketheater-admin --value "你要用的管理員密碼"
+
+koyeb app create faketheater
+koyeb service create web \
+  --app faketheater \
+  --git github.com/Leo0049/projectLab --git-branch main --git-builder docker \
+  --instance-type free --regions was \
+  --port 3000:http \
+  --checks 3000:http:/api/health \
+  --env NODE_ENV=production \
+  --env TRUST_PROXY=1 \
+  --env DB_PATH=/data/faketheater.db \
+  --env 'JWT_SECRET={{ secret.faketheater-jwt }}' \
+  --env 'ADMIN_PASSWORD={{ secret.faketheater-admin }}'
+```
+
+部署完成後會拿到 `https://<service>-<org>.koyeb.app`，把它設進 `PUBLIC_URL` 再重新部署一次：
+
+```bash
+koyeb service update faketheater/web --env PUBLIC_URL=https://你的網址
+```
+
+free 方案的限制：一個帳號一個免費 instance、不能掛持久化磁碟、
+只能部署在 Frankfurt 或 Washington D.C.（台灣訪客的延遲大約 250ms，
+頁面是靜態檔案加小筆 JSON，體感是稍慢而不是不能用），
+閒置一小時後休眠且無法關閉。
+
 ### Render
 
 後台 **New → Blueprint** 選這個 repo，它會讀 `render.yaml` 自動建立服務。
 `JWT_SECRET` 與 `ADMIN_PASSWORD` 由 Render 產生隨機值（在 Environment 頁面可以看到），
 部署完成後把拿到的網址填進 `PUBLIC_URL` 再重新部署一次即可。
 
-free 方案不支援持久化磁碟，重新部署或休眠後資料會回到種子狀態；
-對展示來說沒問題（每次啟動都會重新匯入電影並排入未來 7 天場次），
+Render 有 Singapore 區域，對台灣訪客的延遲比 Koyeb 好很多；
+代價是 free 方案閒置 15 分鐘就休眠，冷啟動約 60 秒。
 要保留訂票紀錄的話把方案改成 starter 並解開 `render.yaml` 裡的 `disk` 區塊。
-另外 free 方案的服務閒置後會休眠，第一個訪客大約要等 50 秒才會看到頁面。
 
 ### Fly.io
 
@@ -408,6 +474,10 @@ fly deploy
 
 `fly.toml` 已掛好 `/data` 的 volume，資料跨部署保留。
 一顆 volume 只能給一台 machine 用，所以這個服務不要橫向擴充。
+
+Fly 目前對新帳號沒有免費方案、需要綁信用卡。
+shared-cpu-1x 256MB 約 $2.02／月，加 1GB volume $0.15／月。
+若你想要東京節點與「訪客的訂票紀錄留得住」，這是三個選項裡唯一做得到的。
 
 ### 本機用 Docker 跑一次
 
@@ -471,6 +541,35 @@ Node 是單執行緒，`better-sqlite3` 又是同步的，
 但 `data/users.json` 當時放在靜態目錄下，`curl` 一下就能拿到 admin 密碼。
 宣稱本身沒錯，卻給人錯誤的整體印象。
 現在每一列都有對應的測試，改壞了測試就會紅，而不是等別人發現。
+
+### 為什麼不部署在 Vercel
+
+Vercel 對這種專案是很自然的直覺選擇，但它會讓專案最核心的保證失效。
+
+Vercel 是 serverless：沒有持久化磁碟，檔案系統除了 `/tmp` 以外唯讀，
+而 `/tmp` 是每個執行個體各自獨立的。放在上面的 SQLite 會變成：
+
+```
+訪客 A 的請求 → 執行個體 1 → /tmp 的資料庫（第一次建立、跑 seed）
+A 訂了 C5      → 寫進執行個體 1 的檔案
+A 重新整理     → 執行個體 2 → 另一個全新的資料庫
+                            → 訂單不見了，餘額回到初始值
+```
+
+「資料會重置」本身不是問題——免費方案本來就會重置。
+真正的問題是**同時存在的多個執行個體各拿著一份不同的資料庫**：
+兩個人可以訂到同一個位子，因為他們寫的是不同的檔案。
+
+而三層防護裡最關鍵的那層是資料庫的部分唯一索引，它的前提是「只有一份資料庫」。
+換句話說，這不是實作有 bug，是平台不提供這個設計所需要的東西。
+
+要在 Vercel 上跑，唯一的路是把 SQLite 換成 Turso 或 Postgres。
+兩者的 client 都是非同步的，而 `better-sqlite3` 是同步的——
+`server/services/` 底下每個函式、每條路由、每份測試都要改成 async，
+`db.transaction(fn).immediate` 那套交易包裝也要重寫；
+若換 Postgres，`BEGIN IMMEDIATE` 沒有對應語意，並發防護得重新設計與重新證明。
+
+選平台的標準是「它能不能承載這個設計」，不是它有多流行。
 
 ### 為什麼海報是用瀏覽器「截」出來的
 
