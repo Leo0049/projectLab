@@ -95,7 +95,9 @@
                     <div class="card-body">
                         <div class="row">
                             <div class="col-md-3 col-4">
-                                <img id="showtime-movie-poster" src="" alt="" class="img-fluid rounded shadow">
+                                <!-- 不要寫 src=""：那會被解析成目前頁面的網址，
+                                     瀏覽器仍會對整頁再發一次請求。海報由 JS 填入。 -->
+                                <img id="showtime-movie-poster" alt="" class="img-fluid rounded shadow">
                             </div>
                             <div class="col-md-9 col-8">
                                 <h4 id="showtime-movie-title" class="mb-2"></h4>
