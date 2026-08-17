@@ -2,6 +2,27 @@ MIT License
 
 Copyright (c) 2026 Leo0049
 
+Scope of this license
+---------------------
+This license covers the source code written for this project: everything under
+server/, tests/, tools/, FakeTheater/js/ except the bundled Bootstrap file,
+FakeTheater/css/custom.css, the HTML pages, and the deployment configuration.
+
+It does NOT cover the following, which are included in this repository but are
+not the copyright holder's to license:
+
+  * Bootstrap v5.3.5 (FakeTheater/css/bootstrap.min.css and
+    FakeTheater/js/bootstrap.bundle.min.js) — Copyright 2011-2025 The Bootstrap
+    Authors, licensed under MIT. Its own copyright notice is retained in each
+    file.
+  * FakeTheater/pic/1.png through 4.png — generated with an AI image model.
+    Works produced without human authorship may not attract copyright at all,
+    so no rights in them are claimed or granted here.
+
+The remaining images (FakeTheater/pic/5.png through 8.png and their -1
+variants) are produced by tools/generate-posters.js and are covered by this
+license along with the rest of the source.
+
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights

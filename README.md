@@ -644,9 +644,20 @@ A 重新整理     → 執行個體 2 → 另一個全新的資料庫
 
 ## 素材與授權
 
-程式碼以 [MIT 授權](LICENSE) 釋出。
+本專案自行撰寫的程式碼以 [MIT 授權](LICENSE) 釋出。
 
-站上的八部電影全部是虛構的，海報與主視覺也都是本專案自製，沒有使用任何真實作品的素材：
+| 內容 | 授權 |
+|---|---|
+| `server/`、`tests/`、`tools/`、HTML、`css/custom.css`、自有的 `js/*.js`、部署設定 | MIT（本專案） |
+| `css/bootstrap.min.css`、`js/bootstrap.bundle.min.js` | Bootstrap v5.3.5，MIT，著作權屬 The Bootstrap Authors，檔案內保留原始標頭 |
+| `pic/1`–`pic/4` | AI 生成，不主張亦不授予任何權利 |
+| `pic/5`–`pic/8` | 本專案產生，隨程式碼一同以 MIT 釋出 |
+
+第三方的部分刻意寫清楚，是因為 repo 根目錄一句「Copyright Leo0049」蓋在別人的程式碼上，
+即使沒有違反授權，陳述也是不準確的。另外純 AI 生成、無人類創作介入的圖像
+是否受著作權保護目前普遍持否定見解，所以那四張只說明來源、不主張權利。
+
+站上的八部電影全部是虛構的，海報與主視覺都是本專案自製，沒有使用任何真實作品的素材：
 
 - `pic/1`–`pic/4` 由 AI 生成，再以 [`tools/reframe-posters.js`](tools/reframe-posters.js)
   正規化為統一的 2:3 版面
@@ -655,3 +666,14 @@ A 重新整理     → 執行個體 2 → 另一個全新的資料庫
 
 這件事不只是版權考量。README 解釋「為什麼不接真實金流」時的理由是
 「這是一間虛構影城、放的是不存在的電影」——片單裡只要有一部是真的，這個論述就不成立。
+
+### 只保留實際載入的 Bootstrap 檔案
+
+`FakeTheater/js/` 與 `css/` 原本放的是整包 Bootstrap dist——rtl 版、esm 版、
+grid／reboot／utilities 拆分版、壓縮與未壓縮版，加上每一支的 source map，
+但七個頁面實際只載入 `bootstrap.min.css` 與 `bootstrap.bundle.min.js` 兩支。
+其餘 43 個檔案（約 8 MB）沒有任何頁面會用到，已經移除。
+
+這不只是體積問題：自有程式碼加起來還不到 400 KB，
+把 8 MB 沒人載入的第三方檔案留在 repo 裡，
+會讓人以為這個專案大部分不是自己寫的。
