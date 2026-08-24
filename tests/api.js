@@ -169,6 +169,11 @@ async function main() {
     });
     check('過短密碼被擋下 (400)', weak.status === 400, `status=${weak.status}`);
 
+    const badEmail = await api('POST', '/api/auth/register', {
+        body: { username: 'bob', email: 'not-an-email', password: 'pass1234' }
+    });
+    check('不合法的電子郵件被擋下 (400)', badEmail.status === 400, `status=${badEmail.status}`);
+
     const storedHash = getDb().prepare('SELECT password_hash FROM users WHERE username = ?').get('alice');
     check('資料庫存的是 hash 不是明文',
         !!storedHash && storedHash.password_hash !== 'pass1234' && storedHash.password_hash.startsWith('$2'));
@@ -193,6 +198,14 @@ async function main() {
 
     /* ---------------- 電影與場次 ---------------- */
     console.log('\n# 電影與場次');
+
+    const cfg = await api('GET', '/api/config');
+    check('公開設定端點回傳前端需要的欄位',
+        cfg.data.maxSeatsPerOrder === 6 &&
+        typeof cfg.data.seatLockTtlMs === 'number' &&
+        typeof cfg.data.ticketExpiryMs === 'number' &&
+        typeof cfg.data.googleLoginEnabled === 'boolean',
+        JSON.stringify(cfg.data));
 
     const movies = await api('GET', '/api/movies');
     check('電影清單 8 部', movies.data.movies?.length === 8, `count=${movies.data.movies?.length}`);
@@ -241,9 +254,11 @@ async function main() {
 
     // 換一個帳號來看，同樣的位子應該顯示為已被鎖定
     const alice = register.data.token;
+    // demo 帳號剛鎖了 C3、C4 兩個座位，對 alice 來說應該是「他人選位中」而非可選
     const seatMapAsAlice = await api('GET', `/api/showtimes/${showtimeId}/seats`, { token: alice });
     check('別人鎖定的位子對其他使用者不可選',
-        seatMapAsAlice.data.locked.length === 0 || true);
+        seatMapAsAlice.data.locked.length === 2 && seatMapAsAlice.data.heldByMe.length === 0,
+        `locked=${seatMapAsAlice.data.locked.length}`);
 
     const aliceLock = await api('POST', `/api/showtimes/${showtimeId}/locks`, {
         token: alice,
@@ -386,6 +401,9 @@ async function main() {
     const order = await api('POST', '/api/payments/deposit', { token, body: { amount: 500 } });
     check('建立儲值訂單 (201)', order.status === 201, `status=${order.status}`);
     check('回傳金流商表單參數', !!order.data.formData?.MerchantTradeNo);
+    check('訂單編號不超過綠界 MerchantTradeNo 上限 20 字元',
+        order.data.formData.MerchantTradeNo.length <= 20,
+        `len=${order.data.formData.MerchantTradeNo.length}`);
     check('表單帶有 CheckMacValue', /^[0-9A-F]{64}$/.test(order.data.formData?.CheckMacValue || ''));
 
     const orderNo = order.data.formData.MerchantTradeNo;
@@ -709,6 +727,15 @@ async function main() {
         check(`${file} 不可被公開讀取`, res.status === 404, `status=${res.status}`);
     }
 
+    console.log('\n# 基本安全標頭');
+
+    const headerProbe = await fetch(`${BASE}/api/health`);
+    check('回應帶 X-Content-Type-Options: nosniff',
+        headerProbe.headers.get('x-content-type-options') === 'nosniff',
+        headerProbe.headers.get('x-content-type-options'));
+    check('回應帶 X-Frame-Options: DENY',
+        headerProbe.headers.get('x-frame-options') === 'DENY');
+
     console.log('\n# 偽造 Host 標頭無法讓伺服器對外發請求');
 
     let spoofHit = false;
@@ -840,6 +867,20 @@ async function main() {
         body: { username: 'demo', password: 'demo123' }
     });
     check('一般會員登入回應的 role 是 user', userLoginRole.data.user.role === 'user');
+
+    console.log('\n# 登入速率限制（暴力破解防護）');
+
+    // 上限是每分鐘 15 次；前面已用掉幾次，連續打 20 次必定觸發 429。
+    // 故意放在最後一個需要登入的測試後面——同一來源的窗口被占滿後，
+    // 後面如果還有登入相關測試就會被誤擋。
+    let gotLimited = false;
+    for (let i = 0; i < 20; i++) {
+        const attempt = await api('POST', '/api/auth/login', {
+            body: { username: 'ratelimit-probe', password: 'wrong-password' }
+        });
+        if (attempt.status === 429) { gotLimited = true; break; }
+    }
+    check('連續嘗試登入被速率限制擋下 (429)', gotLimited);
 
     console.log('\n# 不同設定下的行為（另開行程，因為 config 在 require 當下就讀完了）');
 
