@@ -21,6 +21,15 @@ const AuthManager = {
             this.updateBalanceDisplay();
         });
 
+        // 公開部署可用環境變數 DEMO_GOOGLE_LOGIN=false 收掉模擬登入按鈕（見 README），
+        // 避免所有訪客共享同一個展示錢包
+        DataAPI.getConfig().then(cfg => {
+            if (!cfg.googleLoginEnabled) {
+                document.querySelectorAll('#authModal .btn-google, #authModal .auth-divider')
+                    .forEach(el => { el.style.display = 'none'; });
+            }
+        }).catch(() => { /* 取不到設定就維持原狀 */ });
+
         return this.ready;
     },
 

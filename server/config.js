@@ -51,6 +51,10 @@ module.exports = {
     // 正式環境沒設定就拒絕啟動——公開網址上的後台不能用 README 寫著的密碼進得去。
     ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || '',
 
+    // 「模擬 Google 登入」按鈕的顯示開關（前端從 /api/config 讀取）。
+    // 該按鈕會把所有訪客登入到同一個共用展示帳號，公開部署時建議設為 false。
+    DEMO_GOOGLE_LOGIN: process.env.DEMO_GOOGLE_LOGIN !== 'false',
+
     // 前端靜態檔案目錄
     STATIC_DIR: path.join(__dirname, '..', 'FakeTheater'),
 

@@ -2,6 +2,7 @@
 
 const express = require('express');
 const { getDb } = require('../db');
+const config = require('../config');
 const { notFound, readPagination } = require('../utils/http');
 const { toLocalDateStr, toLocalTimeStr } = require('../utils/dates');
 
@@ -15,6 +16,20 @@ const MOVIE_COLUMNS = `
     rating_class  AS ratingClass,
     release_date  AS releaseDate
 `;
+
+/**
+ * GET /api/config
+ * 提供給前端的公開設定。前端不再硬拷貝這些值（例如選位上限、票券倒數時效），
+ * 改由這裡統一供給，伺服器調整設定時前端自動跟著變。
+ */
+router.get('/config', (req, res) => {
+    res.json({
+        maxSeatsPerOrder: config.MAX_SEATS_PER_ORDER,
+        seatLockTtlMs: config.SEAT_LOCK_TTL_MS,
+        ticketExpiryMs: config.TICKET_EXPIRY_MS,
+        googleLoginEnabled: config.DEMO_GOOGLE_LOGIN
+    });
+});
 
 /**
  * GET /api/movies?category=NowShowing

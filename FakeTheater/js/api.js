@@ -31,6 +31,9 @@ const DataAPI = {
         theaters: { data: null, timestamp: null }
     },
 
+    // /api/config 的結果（見 getConfig）
+    configCache: null,
+
     /* -------------------------------------------------------------- *
      * 權杖
      * -------------------------------------------------------------- */
@@ -187,6 +190,28 @@ const DataAPI = {
     async getTheaterById(id) {
         const theaters = await this.getTheaters();
         return theaters.find(t => t.id === parseInt(id)) || null;
+    },
+
+    /**
+     * 伺服器公開設定（/api/config）。
+     * 選位上限、票券時效這類值不再在前端硬拷貝，避免兩邊漂移。
+     * @returns {Promise<{maxSeatsPerOrder:number, seatLockTtlMs:number, ticketExpiryMs:number, googleLoginEnabled:boolean}>}
+     */
+    async getConfig() {
+        if (this.configCache) return this.configCache;
+        try {
+            this.configCache = await this.get('/config');
+        } catch (error) {
+            // 取不到（舊版伺服器、離線示範）就用與原本行為一致的後備值
+            console.warn('無法取得伺服器設定，使用內建預設值', error);
+            this.configCache = {
+                maxSeatsPerOrder: 6,
+                seatLockTtlMs: 5 * 60 * 1000,
+                ticketExpiryMs: 60 * 1000,
+                googleLoginEnabled: true
+            };
+        }
+        return this.configCache;
     },
 
     /* -------------------------------------------------------------- *
