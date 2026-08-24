@@ -4,12 +4,20 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const { getDb } = require('../db');
 const { signToken, requireAuth } = require('../middleware/auth');
+const { createRateLimit } = require('../middleware/rate-limit');
 const { badRequest, unauthorized, conflict } = require('../utils/http');
 
 const router = express.Router();
 
+// 拖慢暴力破解：同一來源每分鐘的嘗試次數上限。
+// 註冊放得比登入寬（測試與展示都會在短時間內建立多個帳號），但仍遠低於灌爆的程度。
+const loginLimiter = createRateLimit({ windowMs: 60 * 1000, max: 15 });
+const registerLimiter = createRateLimit({ windowMs: 60 * 1000, max: 30 });
+
 const USERNAME_MAX = 30;
 const PASSWORD_MIN = 6;
+// 寬鬆即可：只擋明顯不是 email 的字串，真正的所有權驗證要靠寄信
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function publicUser(user) {
     return {
@@ -25,7 +33,7 @@ function publicUser(user) {
 /**
  * POST /api/auth/register
  */
-router.post('/register', (req, res) => {
+router.post('/register', registerLimiter, (req, res) => {
     const username = String(req.body?.username || '').trim();
     const email = String(req.body?.email || '').trim();
     const password = String(req.body?.password || '');
@@ -33,6 +41,7 @@ router.post('/register', (req, res) => {
     if (!username || !password) throw badRequest('請填寫用戶名與密碼');
     if (username.length > USERNAME_MAX) throw badRequest(`用戶名不能超過 ${USERNAME_MAX} 個字`);
     if (password.length < PASSWORD_MIN) throw badRequest(`密碼至少要 ${PASSWORD_MIN} 個字元`);
+    if (email && !EMAIL_PATTERN.test(email)) throw badRequest('電子郵件格式不正確');
 
     const db = getDb();
     const finalEmail = email || `${username}@faketheater.com`;
@@ -57,7 +66,7 @@ router.post('/register', (req, res) => {
 /**
  * POST /api/auth/login
  */
-router.post('/login', (req, res) => {
+router.post('/login', loginLimiter, (req, res) => {
     const username = String(req.body?.username || '').trim();
     const password = String(req.body?.password || '');
 
