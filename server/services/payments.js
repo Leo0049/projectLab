@@ -32,10 +32,12 @@ const { createCheckMacValue, verifyCheckMacValue } = require('../payments/signat
 const TERMINAL_STATUSES = new Set(['paid', 'failed']);
 
 /**
- * 產生我方訂單編號。金流商通常限制英數且有長度上限。
+ * 產生我方訂單編號。金流商通常限制英數且有長度上限——
+ * 綠界的 MerchantTradeNo 最長 20 字元，這裡固定輸出恰好 20 字：
+ * 「FT」＋ 12 位時間戳（YYYYMMDDhhmm）＋ 6 位隨機十六進位。
  */
 function generateOrderNo() {
-    const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 14);
+    const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 12);
     const random = crypto.randomBytes(3).toString('hex').toUpperCase();
     return `FT${stamp}${random}`;
 }
