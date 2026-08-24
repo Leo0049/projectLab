@@ -116,9 +116,11 @@ CREATE TABLE IF NOT EXISTS payment_orders (
     provider         TEXT    NOT NULL DEFAULT 'sandbox',
     provider_trade_no TEXT,                          -- 金流商的交易編號
     callback_raw     TEXT,                           -- 原始回調內容，對帳用
+    -- created_at／paid_at 是 UTC datetime 字串（給人看的，與其他表一致）
     created_at       TEXT    NOT NULL DEFAULT (datetime('now')),
     paid_at          TEXT,
-    expires_at       INTEGER NOT NULL                -- epoch ms
+    -- epoch ms：要跟 Date.now() 直接做數值比較（逾時判定），所以不用 datetime 字串
+    expires_at       INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_payment_orders_user ON payment_orders (user_id, id DESC);

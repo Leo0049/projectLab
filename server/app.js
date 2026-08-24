@@ -38,6 +38,26 @@ function createApp() {
 
     app.disable('x-powered-by');
 
+    // 基本安全標頭。前端已無內聯腳本（profile 的那段抽成 js/profile.js），
+    // 所以 CSP 能用最嚴格的 script-src 'self'；樣式因為樣板會產生 style 屬性
+    // 與沙盒頁的 <style> 區塊，仍需允許 unsafe-inline。
+    app.use((req, res, next) => {
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('X-Frame-Options', 'DENY');
+        res.setHeader('Referrer-Policy', 'same-origin');
+        res.setHeader('Content-Security-Policy', [
+            "default-src 'self'",
+            "script-src 'self'",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data:",   // Bootstrap 的內嵌 SVG 圖示用 data: URI
+            "connect-src 'self'",
+            "form-action 'self'",
+            "frame-ancestors 'none'",
+            "base-uri 'self'"
+        ].join('; '));
+        next();
+    });
+
     // 部署在反向代理後方時，才讓 Express 相信 X-Forwarded-* 標頭。
     // 這只影響 req.protocol / req.ip；金流回調用的是 socket 的實際位址，不受影響。
     if (config.TRUST_PROXY !== false) {
