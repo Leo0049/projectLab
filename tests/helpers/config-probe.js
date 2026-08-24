@@ -20,6 +20,7 @@ process.env.JWT_SECRET = 'config-probe';
 
 const config = require('../../server/config');
 const { createApp, initDatabase } = require('../../server/app');
+const { closeDb } = require('../../server/db');
 
 function post(port, pathname, body, headers = {}) {
     const payload = typeof body === 'string' ? body : JSON.stringify(body);
@@ -133,8 +134,10 @@ function post(port, pathname, body, headers = {}) {
     } catch (error) {
         result.error = error.message;
     } finally {
-        fs.rmSync(TMP, { recursive: true, force: true });
+        // 先關掉資料庫再刪暫存目錄：Windows 不允許刪除開啟中的檔案。
+        // 結果先輸出、清理放最後——就算清理失敗，父行程也收得到資料。
+        try { closeDb(); } catch { /* 已關閉或從未開啟 */ }
+        process.stdout.write(JSON.stringify(result));
+        try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* 留給 OS 清 */ }
     }
-
-    process.stdout.write(JSON.stringify(result));
 })();
