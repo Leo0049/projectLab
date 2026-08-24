@@ -16,7 +16,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # better-sqlite3 13 需要 Node 22
+          # 專案要求 Node 22 以上
           node-version: 22
           cache: npm
 
