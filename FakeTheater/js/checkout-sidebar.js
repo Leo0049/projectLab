@@ -160,9 +160,15 @@ const CheckoutSidebar = {
 
         this.stopLockCountdown();
 
-        // 沒付款就離開 → 把保留的位子還回去，不要佔著
+        // 沒付款就離開 → 把保留的位子還回去，不要佔著。
+        // 保留已過期的話，座位早就被伺服器清掉了，不必多打這一槍，
+        // 但座位圖仍要重繳，清掉畫面上殘留的選位狀態。
         if (this.orderData && !this.paid) {
-            DataAPI.releaseSeats(this.orderData.showtimeId)
+            const lockValid = Date.now() < (this.orderData.expiresAt || Infinity);
+            const released = lockValid
+                ? DataAPI.releaseSeats(this.orderData.showtimeId)
+                : Promise.resolve();
+            released
                 .then(() => {
                     if (typeof refreshSeatMap === 'function') refreshSeatMap();
                 })

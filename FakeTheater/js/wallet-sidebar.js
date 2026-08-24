@@ -5,7 +5,6 @@
  * 「使用中 → 歷史票券」的歸檔由伺服器判斷，前端只負責顯示倒數。
  */
 
-const TICKET_EXPIRY_MS = 60 * 1000;   // 與伺服器的 TICKET_EXPIRY_MS 一致
 const WALLET_REFRESH_MS = 5000;       // 有票券倒數時的刷新間隔
 
 const WalletSidebar = {
@@ -137,6 +136,9 @@ const WalletSidebar = {
             return;
         }
 
+        // 倒數時效以伺服器設定為準；getConfig 取不到時會用後備值，不抛例外
+        await DataAPI.getConfig();
+
         let tickets;
         try {
             tickets = await DataAPI.getTickets();
@@ -175,10 +177,11 @@ const WalletSidebar = {
 
         let html = '';
 
-        // 使用中：顯示 QR Code 與倒數
+        // 使用中：顯示 QR Code 與倒數（時效以 /api/config 為準）
+        const ticketExpiryMs = DataAPI.configCache?.ticketExpiryMs ?? (60 * 1000);
         usingTickets.forEach(ticket => {
             const usedAt = ticket.usedAt || Date.now();
-            const remaining = Math.max(0, Math.ceil((TICKET_EXPIRY_MS - (Date.now() - usedAt)) / 1000));
+            const remaining = Math.max(0, Math.ceil((ticketExpiryMs - (Date.now() - usedAt)) / 1000));
             html += `
                 <div class="ticket-card ticket-card-realistic mb-3 using" data-ticket-id="${ticket.id}">
                     <div class="ticket-card-header">

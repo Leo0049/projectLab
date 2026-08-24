@@ -6,14 +6,13 @@
  *   booking.html?showtime=12&movie=1&date=2026-08-10&time=18:00
  */
 
-const MAX_SEATS_PER_ORDER = 6;
-
 const BookingPage = {
     movies: [],
     showtimes: [],          // 目前這部電影的所有場次
     currentShowtime: null,
     currentMovie: null,
     selectedSeats: [],      // [{row, col}]
+    maxSeatsPerOrder: 6,    // 以 /api/config 為準（init 時更新）
 
     elements: {},
 
@@ -34,6 +33,10 @@ const BookingPage = {
         if (!this.elements.movieSelect) return;
 
         this.bindEvents();
+
+        // 選位上限以伺服器設定為準；getConfig 取不到時會用後備值，不抛例外
+        const cfg = await DataAPI.getConfig();
+        this.maxSeatsPerOrder = cfg.maxSeatsPerOrder;
 
         try {
             this.movies = await DataAPI.getMovies();
@@ -242,8 +245,8 @@ const BookingPage = {
             this.selectedSeats.splice(index, 1);
             seatEl.classList.remove('selected');
         } else {
-            if (this.selectedSeats.length >= MAX_SEATS_PER_ORDER) {
-                AuthManager.showToast(`單次最多只能選 ${MAX_SEATS_PER_ORDER} 個座位`, 'warning');
+            if (this.selectedSeats.length >= this.maxSeatsPerOrder) {
+                AuthManager.showToast(`單次最多只能選 ${this.maxSeatsPerOrder} 個座位`, 'warning');
                 return;
             }
             this.selectedSeats.push({ row, col });
