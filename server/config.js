@@ -55,6 +55,26 @@ function paymentSecret(name) {
 const PAYMENT_HASH_KEY = paymentSecret('PAYMENT_HASH_KEY');
 const PAYMENT_HASH_IV = paymentSecret('PAYMENT_HASH_IV');
 
+/* -------------------------------------------------------------- *
+ * 退票規則
+ * -------------------------------------------------------------- */
+// 開演前多久停止受理退票
+const REFUND_CUTOFF_MINUTES = numberEnv(process.env.REFUND_CUTOFF_MINUTES, 30);
+// 退票手續費比例
+const REFUND_FEE_RATE = numberEnv(process.env.REFUND_FEE_RATE, 0.1);
+
+// 啟動前就把不合理的退票設定擋下來，絕不默默接受：
+// 費率不在 [0, 1] 時，退款金額反而會算出比票價還多的錢（退一張賺一張）；
+// 退票期限為負數則代表「開演後一段時間內還能退」，同樣不合理。
+if (REFUND_FEE_RATE < 0 || REFUND_FEE_RATE > 1) {
+    throw new Error(
+        `設定錯誤：REFUND_FEE_RATE 必須落在 [0, 1]（含端點），目前收到：${process.env.REFUND_FEE_RATE}`);
+}
+if (REFUND_CUTOFF_MINUTES < 0) {
+    throw new Error(
+        `設定錯誤：REFUND_CUTOFF_MINUTES 必須 >= 0，目前收到：${process.env.REFUND_CUTOFF_MINUTES}`);
+}
+
 /**
  * 伺服器設定。正式環境請務必用環境變數覆寫 JWT_SECRET。
  */
@@ -119,10 +139,8 @@ module.exports = {
     /* -------------------------------------------------------------- *
      * 退票規則
      * -------------------------------------------------------------- */
-    // 開演前多久停止受理退票
-    REFUND_CUTOFF_MINUTES: numberEnv(process.env.REFUND_CUTOFF_MINUTES, 30),
-    // 退票手續費比例
-    REFUND_FEE_RATE: numberEnv(process.env.REFUND_FEE_RATE, 0.1),
+    REFUND_CUTOFF_MINUTES,
+    REFUND_FEE_RATE,
 
     IS_PROD: process.env.NODE_ENV === 'production'
 };

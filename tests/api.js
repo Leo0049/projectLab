@@ -98,6 +98,22 @@ function runStartup(env) {
     });
 }
 
+/**
+ * 以指定的環境變數另開一個行程 require server/config。
+ * 設定範圍的驗證在模組載入當下執行：帶壞值載入必須直接拋錯、以非零結束。
+ * @param {Object} env
+ * @returns {Promise<{code: number, stderr: string}>}
+ */
+function runConfigLoad(env) {
+    return new Promise(resolve => {
+        execFile('node', ['-e', `require(${JSON.stringify(path.join(__dirname, '..', 'server', 'config.js'))})`],
+            { env: { ...process.env, ...env }, timeout: 10000 },
+            (error, stdout, stderr) => {
+                resolve({ code: error?.code ?? 0, stderr: stderr || '' });
+            });
+    });
+}
+
 function runWorker(args) {
     return new Promise(resolve => {
         execFile('node', [path.join(__dirname, 'helpers', 'race-worker.js'), ...args],
@@ -931,6 +947,23 @@ async function main() {
         `value=${zeroEnv.refundFeeRate}`);
     check('REFUND_CUTOFF_MINUTES=0 不會被預設值蓋掉', zeroEnv.refundCutoffMinutes === 0,
         `value=${zeroEnv.refundCutoffMinutes}`);
+
+    // 不合理的退票設定不能默默接受：費率超出 [0, 1] 時，退款金額反而會大於票價
+    // （退一張賺一張）；退票期限為負數同樣沒有意義。兩者都必須讓啟動直接失敗。
+    const badFeeLow = await runConfigLoad({ REFUND_FEE_RATE: '-0.5' });
+    check('REFUND_FEE_RATE 為負數時拒絕啟動',
+        badFeeLow.code !== 0 && badFeeLow.stderr.includes('REFUND_FEE_RATE'),
+        `code=${badFeeLow.code} stderr=${badFeeLow.stderr.trim().split('\n')[0]}`);
+
+    const badFeeHigh = await runConfigLoad({ REFUND_FEE_RATE: '1.5' });
+    check('REFUND_FEE_RATE 超過 1 時拒絕啟動',
+        badFeeHigh.code !== 0 && badFeeHigh.stderr.includes('REFUND_FEE_RATE'),
+        `code=${badFeeHigh.code} stderr=${badFeeHigh.stderr.trim().split('\n')[0]}`);
+
+    const badCutoff = await runConfigLoad({ REFUND_CUTOFF_MINUTES: '-1' });
+    check('REFUND_CUTOFF_MINUTES 為負數時拒絕啟動',
+        badCutoff.code !== 0 && badCutoff.stderr.includes('REFUND_CUTOFF_MINUTES'),
+        `code=${badCutoff.code} stderr=${badCutoff.stderr.trim().split('\n')[0]}`);
 
     // 正式環境會設 PUBLIC_URL，這條路徑必須跟沙盒的驗證一致，否則付款導回會失效
     const publicUrlEnv = await runConfigProbe({ PUBLIC_URL: 'http://ticket.example.com/' });
