@@ -115,6 +115,12 @@ function runWorker(args) {
 const { createCheckMacValue: signParams } = require('../server/payments/signature');
 const payCfg = require('../server/config');
 
+// 綠界公開文件上的測試金鑰——曾經直接寫死在原始碼裡的那組。
+// 刻意寫死在測試裡、絕不從 config 讀取：要驗證的正是「攻擊者只知道這組公開金鑰」
+// 時偽造不了回調，而且 config 也不再使用它。
+const LEGACY_PUBLIC_HASH_KEY = 'pwFHCqoQZGmho4w6';
+const LEGACY_PUBLIC_HASH_IV = 'EkRm7iFT261dpevs';
+
 /**
  * 測試用：透過金流流程幫帳號加值（建立訂單 → 送出已簽章的回調）
  */
@@ -485,6 +491,42 @@ async function main() {
 
     const otherOrder = await api('GET', `/api/payments/orders/${orderNo2}`, { token: alice });
     check('不能查詢別人的金流訂單 (404)', otherOrder.status === 404, `status=${otherOrder.status}`);
+
+    /* ---------------- 金流：洩漏金鑰不得偽造回調 ---------------- */
+    console.log('\n# 金流：舊公開金鑰與簽章神諭');
+
+    // 攻擊劇本：註冊 → 建儲值單 → 用公開金鑰簽假回調 → 打 webhook，全程未付款。
+    const attackOrder = await api('POST', '/api/payments/deposit', { token, body: { amount: 500 } });
+    const attackOrderNo = attackOrder.data.formData.MerchantTradeNo;
+    const balanceBeforeAttack = (await api('GET', '/api/auth/me', { token })).data.user.balance;
+
+    const forgedLegacyParams = {
+        MerchantID: payCfg.PAYMENT_MERCHANT_ID,
+        MerchantTradeNo: attackOrderNo,
+        TradeNo: 'SBFORGE',
+        TradeAmt: '500',
+        RtnCode: '1',
+        RtnMsg: '交易成功'
+    };
+    // 只用曾經寫死在原始碼裡的那組公開金鑰簽章——攻擊者手上就只有這個
+    forgedLegacyParams.CheckMacValue = signParams(
+        forgedLegacyParams, LEGACY_PUBLIC_HASH_KEY, LEGACY_PUBLIC_HASH_IV
+    );
+    const forgedLegacy = await fetch(`${BASE}/api/payments/webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(forgedLegacyParams).toString()
+    });
+    check('用舊公開金鑰偽造的回調被拒絕 (400)', forgedLegacy.status === 400, `status=${forgedLegacy.status}`);
+
+    const balanceAfterAttack = (await api('GET', '/api/auth/me', { token })).data.user.balance;
+    check('舊公開金鑰的偽造回調沒有入帳',
+        balanceAfterAttack === balanceBeforeAttack,
+        `${balanceBeforeAttack} → ${balanceAfterAttack}`);
+
+    // 曾經存在的簽章神諭：任何人都能請伺服器替任意參數計算合法簽章，必須移除
+    const signOracle = await fetch(`${BASE}/sandbox/sign?MerchantTradeNo=${attackOrderNo}&TradeAmt=500`);
+    check('簽章神諭端點已移除 (404)', signOracle.status === 404, `status=${signOracle.status}`);
 
 
     /* ---------------- 金流：邊界與濫用 ---------------- */
@@ -901,6 +943,38 @@ async function main() {
 
     const liveEnv = await runConfigProbe({ PAYMENT_PROVIDER: 'ecpay' });
     check('改用正式金流商後沙盒路由不再掛載', liveEnv.sandboxMounted === false);
+
+    // 沙盒簽章金鑰：公開 repo 裡的預設值等於沒有金鑰，沒設環境變數時
+    // 必須每個行程各自隨機產生（傳空字串是為了蓋掉繼承自父行程的設定）
+    const sandboxKeysEnv = await runConfigProbe({ PAYMENT_HASH_KEY: '', PAYMENT_HASH_IV: '' });
+    check('未設定環境變數時，沙盒簽章金鑰不再是公開預設值',
+        sandboxKeysEnv.hashKey !== LEGACY_PUBLIC_HASH_KEY &&
+        sandboxKeysEnv.hashIv !== LEGACY_PUBLIC_HASH_IV,
+        `key=${sandboxKeysEnv.hashKey} iv=${sandboxKeysEnv.hashIv}`);
+    check('隨機產生的沙盒金鑰是 randomBytes(16) 的 32 字元十六進位',
+        /^[0-9a-f]{32}$/.test(sandboxKeysEnv.hashKey || '') &&
+        /^[0-9a-f]{32}$/.test(sandboxKeysEnv.hashIv || ''),
+        `key len=${(sandboxKeysEnv.hashKey || '').length}, iv len=${(sandboxKeysEnv.hashIv || '').length}`);
+
+    // 環境變數明確設定時要照用——之後換真實金流商就是這樣帶入測試環境金鑰
+    const customKeysEnv = await runConfigProbe({
+        PAYMENT_HASH_KEY: '0123456789abcdef0123456789abcdef',
+        PAYMENT_HASH_IV: 'fedcba9876543210fedcba9876543210'
+    });
+    check('環境變數明確設定時照用設定的金鑰，不會被隨機值蓋掉',
+        customKeysEnv.hashKey === '0123456789abcdef0123456789abcdef' &&
+        customKeysEnv.hashIv === 'fedcba9876543210fedcba9876543210',
+        `key=${customKeysEnv.hashKey} iv=${customKeysEnv.hashIv}`);
+
+    // 非沙盒模式卻沒設定金鑰：寧可全部驗證失敗（fail closed），也不退回公開已知的預設值
+    const liveKeysEnv = await runConfigProbe({
+        PAYMENT_PROVIDER: 'ecpay',
+        PAYMENT_HASH_KEY: '',
+        PAYMENT_HASH_IV: ''
+    });
+    check('非沙盒模式未設定金鑰時為空字串，不退回公開預設值',
+        liveKeysEnv.hashKey === '' && liveKeysEnv.hashIv === '',
+        `key=${JSON.stringify(liveKeysEnv.hashKey)} iv=${JSON.stringify(liveKeysEnv.hashIv)}`);
 
     console.log('\n# 部署設定');
 

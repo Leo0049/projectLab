@@ -58,6 +58,8 @@ function post(port, pathname, body, headers = {}) {
         refundCutoffMinutes: config.REFUND_CUTOFF_MINUTES,
         publicUrl: config.PUBLIC_URL,
         trustProxy: config.TRUST_PROXY,
+        hashKey: config.PAYMENT_HASH_KEY,
+        hashIv: config.PAYMENT_HASH_IV,
         sandboxMounted: null,
         webhookUrl: null,
         clientBackUrl: null,

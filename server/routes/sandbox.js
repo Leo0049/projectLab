@@ -3,7 +3,7 @@
 const express = require('express');
 const config = require('../config');
 const paymentService = require('../services/payments');
-const { createCheckMacValue, verifyCheckMacValue } = require('../payments/signature');
+const { verifyCheckMacValue } = require('../payments/signature');
 const { publicOrigin, internalUrl, toLocalPath } = require('../utils/urls');
 
 const router = express.Router();
@@ -209,16 +209,6 @@ router.post('/pay', async (req, res, next) => {
     } catch (error) {
         next(error);
     }
-});
-
-/**
- * 讓測試可以直接驗證簽章工具
- */
-router.get('/sign', (req, res) => {
-    const params = { ...req.query };
-    res.json({
-        CheckMacValue: createCheckMacValue(params, config.PAYMENT_HASH_KEY, config.PAYMENT_HASH_IV)
-    });
 });
 
 module.exports = router;

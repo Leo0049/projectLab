@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('path');
+const crypto = require('crypto');
 
 /**
  * 讀取數值型環境變數。
@@ -31,6 +32,28 @@ function trustProxyEnv(value) {
     const hops = Number(value);
     return Number.isInteger(hops) && hops >= 0 ? hops : value;
 }
+
+// 先讀一次存成常數，讓下面的 paymentSecret() 與 exports 共用同一個判斷結果
+const PAYMENT_PROVIDER = process.env.PAYMENT_PROVIDER || 'sandbox';
+
+/**
+ * 金流簽章金鑰：環境變數有設就照用（相容真實金流商的測試環境金鑰）；
+ * 沒設時，沙盒模式以 crypto.randomBytes(16) 產生行程內隨機金鑰。
+ *
+ * WHY：原本寫死在這裡的是綠界公開文件上的測試金鑰——寫在公開 repo 裡的金鑰等於沒有金鑰，
+ * 任何讀過原始碼的人都能替回調簽出合法的 CheckMacValue，不入帳就把錢儲值進錢包。
+ * 隨機化不影響功能：沙盒的整條流程（建立訂單 → 付款頁 → 回調驗證）全部在同一個行程內完成。
+ * 非沙盒模式卻沒設定金鑰時回傳空字串，讓所有簽章驗證一律失敗（fail closed），
+ * 絕不退回公開已知的預設值。
+ */
+function paymentSecret(name) {
+    const value = process.env[name];
+    if (value !== undefined && value !== '') return value;
+    return PAYMENT_PROVIDER === 'sandbox' ? crypto.randomBytes(16).toString('hex') : '';
+}
+
+const PAYMENT_HASH_KEY = paymentSecret('PAYMENT_HASH_KEY');
+const PAYMENT_HASH_IV = paymentSecret('PAYMENT_HASH_IV');
 
 /**
  * 伺服器設定。正式環境請務必用環境變數覆寫 JWT_SECRET。
@@ -82,10 +105,10 @@ module.exports = {
     // 正式環境請明確設定，金流的回調與返回網址才不會被牽著走。
     PUBLIC_URL: process.env.PUBLIC_URL || '',
 
-    PAYMENT_PROVIDER: process.env.PAYMENT_PROVIDER || 'sandbox',
+    PAYMENT_PROVIDER,
     PAYMENT_MERCHANT_ID: process.env.PAYMENT_MERCHANT_ID || '3002607',
-    PAYMENT_HASH_KEY: process.env.PAYMENT_HASH_KEY || 'pwFHCqoQZGmho4w6',
-    PAYMENT_HASH_IV: process.env.PAYMENT_HASH_IV || 'EkRm7iFT261dpevs',
+    PAYMENT_HASH_KEY,
+    PAYMENT_HASH_IV,
 
     // 金流訂單多久沒付款就失效
     PAYMENT_ORDER_TTL_MS: numberEnv(process.env.PAYMENT_ORDER_TTL_MS, 15 * 60 * 1000),
