@@ -53,7 +53,7 @@ npm start
 
 ```bash
 npx playwright install chromium   # 只有第一次需要
-npm test          # 後端 133 項 + 瀏覽器 83 項
+npm test          # 後端 145 項 + 瀏覽器 85 項
 npm run test:api  # 只跑後端
 npm run test:e2e  # 只跑瀏覽器
 ```
@@ -81,11 +81,13 @@ server/                 後端
 FakeTheater/            前端（由 Express 直接提供）
   *.html                七個頁面
   js/api.js             API client，前端唯一對外的資料入口
+  js/common.js          escapeHtml、回到頂部按鈕等跨頁面共用功能
   js/auth.js            登入狀態與錢包
   js/sidebar.js         共用側邊欄（依角色顯示不同項目）
   js/infinite-scroll.js 共用的無限滾動元件
+  js/movie-detail.js    電影詳情頁
   js/booking.js         訂票頁
-  js/checkout-sidebar.js結帳側邊欄（含座位保留倒數）
+  js/checkout-sidebar.js 結帳側邊欄（含座位保留倒數）
   js/wallet-sidebar.js  票夾（使用、退票）
   js/admin.js           管理後台
   css/custom.css        深色主題與所有自訂樣式
@@ -167,7 +169,7 @@ POST /api/payments/deposit      建立 pending 訂單，回傳已簽章的表單
 參數字典序排序 → 前後接上 HashKey/HashIV → .NET 風格 URL encode → SHA256 → 轉大寫。
 驗證時用 `timingSafeEqual` 比對，避免以回應時間推測正確簽章。
 
-三個容易寫錯、測試都有涵蓋的地方：
+六個容易寫錯、測試都有涵蓋的地方：
 
 | 風險 | 作法 |
 |---|---|
@@ -215,7 +217,7 @@ CREATE UNIQUE INDEX idx_booking_seats_unique
 
 ## 安全性設計
 
-下表每一列都對應到 `tests/api.js` 裡的測試，不是口號。
+下表每一列都對應到自動測試（`tests/api.js` 或 `tests/e2e.js`），不是口號。
 
 | 項目 | 作法 |
 |---|---|
@@ -372,8 +374,10 @@ payment_orders  金流訂單（pending / paid / failed / expired）
 | `SEAT_LOCK_TTL_MS` | `300000` | 座位保留時間 |
 | `PAYMENT_PROVIDER` | `sandbox` | 改成其他值就不會掛載沙盒金流路由 |
 | `PAYMENT_ORDER_TTL_MS` | `900000` | 金流訂單多久未付款就失效 |
-| `REFUND_FEE_RATE` | `0.1` | 退票手續費比例，設 `0` 表示不收 |
-| `REFUND_CUTOFF_MINUTES` | `30` | 開演前幾分鐘停止受理退票 |
+| `PAYMENT_HASH_KEY` / `PAYMENT_HASH_IV` | 沙盒模式未設定時，每次啟動隨機產生 | CheckMacValue 簽章金鑰。對接真實金流商的測試／正式環境時才需要設定 |
+| `REFUND_FEE_RATE` | `0.1` | 退票手續費比例，設 `0` 表示不收。必須落在 `[0, 1]`，超出範圍時伺服器拒絕啟動 |
+| `REFUND_CUTOFF_MINUTES` | `30` | 開演前幾分鐘停止受理退票。不得為負數，違反時伺服器拒絕啟動 |
+| `DEMO_GOOGLE_LOGIN` | `true` | 「模擬 Google 登入」按鈕開關。該按鈕會把所有訪客登入同一個共用展示帳號，公開部署建議設 `false` |
 
 想在本機用這些設定，Node 內建就能讀 `.env`，不需要額外套件：
 
@@ -425,6 +429,7 @@ TRUST_PROXY=1
 DB_PATH=/data/faketheater.db
 JWT_SECRET=（用 openssl rand -hex 32 產生，建議存成 Secret）
 ADMIN_PASSWORD=（你要用的管理員密碼）
+DEMO_GOOGLE_LOGIN=false
 ```
 
 **CLI**：
@@ -444,7 +449,8 @@ koyeb service create web \
   --env TRUST_PROXY=1 \
   --env DB_PATH=/data/faketheater.db \
   --env 'JWT_SECRET={{ secret.faketheater-jwt }}' \
-  --env 'ADMIN_PASSWORD={{ secret.faketheater-admin }}'
+  --env 'ADMIN_PASSWORD={{ secret.faketheater-admin }}' \
+  --env DEMO_GOOGLE_LOGIN=false
 ```
 
 部署完成後會拿到 `https://<service>-<org>.koyeb.app`，把它設進 `PUBLIC_URL` 再重新部署一次：
@@ -463,6 +469,7 @@ free 方案的限制：一個帳號一個免費 instance、不能掛持久化磁
 後台 **New → Blueprint** 選這個 repo，它會讀 `render.yaml` 自動建立服務。
 `JWT_SECRET` 與 `ADMIN_PASSWORD` 由 Render 產生隨機值（在 Environment 頁面可以看到），
 部署完成後把拿到的網址填進 `PUBLIC_URL` 再重新部署一次即可。
+模擬 Google 登入的按鈕已由藍圖預設收掉（`DEMO_GOOGLE_LOGIN=false`）。
 
 Render 有 Singapore 區域，對台灣訪客的延遲比 Koyeb 好很多；
 代價是 free 方案閒置 15 分鐘就休眠，冷啟動約 60 秒。
@@ -474,6 +481,8 @@ Render 有 Singapore 區域，對台灣訪客的延遲比 Koyeb 好很多；
 fly launch --no-deploy --copy-config
 fly volumes create faketheater_data --size 1 --region nrt
 fly secrets set JWT_SECRET="$(openssl rand -hex 32)" ADMIN_PASSWORD="你的密碼"
+# 公開部署記得一併收掉模擬 Google 登入按鈕（見〈已知限制〉）
+fly secrets set DEMO_GOOGLE_LOGIN=false
 fly secrets set PUBLIC_URL="https://你的app名稱.fly.dev"
 fly deploy
 ```
@@ -630,6 +639,12 @@ A 重新整理     → 執行個體 2 → 另一個全新的資料庫
 
 修正時每一個都補了回歸測試，也因此後端測試從 44 項成長到 127 項——
 其中相當比例是安全性與邊界情境，不是功能。
+
+這個故事在 2026 年的第二輪複審又發生了一次：216 項測試全綠，複審仍然找出五個真實問題——
+沙盒簽章金鑰直接用著綠界公開文件上的測試金鑰（等於沒有金鑰）、電影詳情頁有一處跳過
+`escapeHtml()` 的渲染路徑、退票手續費率可以設成負數（退一張賺一張）、排片時間驗證放行
+`99:99` 這種永不開演的場次，以及速率限制的可繞過條件沒有揭露在文件裡。
+每一項同樣補上了回歸測試或揭露，兩份測試合計從 216 項成長到如今的 230 項。
 
 ## 已知限制
 
