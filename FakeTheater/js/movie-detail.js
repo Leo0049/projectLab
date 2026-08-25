@@ -54,22 +54,22 @@ document.addEventListener('DOMContentLoaded', async function () {
         if (container) {
             container.innerHTML = `
                 <div class="col-md-4 mb-4">
-                    <img src="${movie.posterImage}" alt="${movie.title}" class="img-fluid rounded shadow movie-poster-large" style="width: 100%; max-width: 350px;">
+                    <img src="${escapeHtml(movie.posterImage)}" alt="${escapeHtml(movie.title)}" class="img-fluid rounded shadow movie-poster-large" style="width: 100%; max-width: 350px;">
                 </div>
                 <div class="col-md-8">
                     <div class="card shadow-sm">
                         <div class="card-body">
-                            <h3 class="card-title text-primary mb-3">${movie.title}</h3>
+                            <h3 class="card-title text-primary mb-3">${escapeHtml(movie.title)}</h3>
                             <div class="mb-3">
                                 <span class="badge bg-warning text-dark fs-6">
-                                    ⭐ ${movie.rating}/10
+                                    ⭐ ${escapeHtml(movie.rating)}/10
                                 </span>
-                                <span class="badge bg-secondary ms-2">${movie.ratingClass}</span>
-                                <span class="badge bg-info ms-2">${movie.duration}</span>
+                                <span class="badge bg-secondary ms-2">${escapeHtml(movie.ratingClass)}</span>
+                                <span class="badge bg-info ms-2">${escapeHtml(movie.duration)}</span>
                             </div>
                             
                             <h5 class="mt-4 mb-3">📖 劇情簡介</h5>
-                            <p class="card-text text-muted lh-lg">${movie.description}</p>
+                            <p class="card-text text-muted lh-lg">${escapeHtml(movie.description)}</p>
 
                             <hr class="my-4">
 
@@ -77,13 +77,13 @@ document.addEventListener('DOMContentLoaded', async function () {
                             <div class="row">
                                 <div class="col-sm-6">
                                     <ul class="list-unstyled">
-                                        <li class="mb-2"><strong> 片長：</strong> ${movie.duration}</li>
-                                        <li class="mb-2"><strong> 分級：</strong> ${movie.ratingClass}</li>
+                                        <li class="mb-2"><strong> 片長：</strong> ${escapeHtml(movie.duration)}</li>
+                                        <li class="mb-2"><strong> 分級：</strong> ${escapeHtml(movie.ratingClass)}</li>
                                     </ul>
                                 </div>
                                 <div class="col-sm-6">
                                     <ul class="list-unstyled">
-                                        <li class="mb-2"><strong>上映日期：</strong> ${movie.releaseDate}</li>
+                                        <li class="mb-2"><strong>上映日期：</strong> ${escapeHtml(movie.releaseDate)}</li>
                                         <li class="mb-2"><strong>類別：</strong> ${getCategoryLabel(movie.category)}</li>
                                     </ul>
                                 </div>
@@ -126,7 +126,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             'TopPick': '精選推薦',
             'ComingSoon': '即將上映'
         };
-        return labels[category] || category;
+        return labels[category] || escapeHtml(category);
     }
 
     // 載入場次資料
