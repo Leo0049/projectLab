@@ -13,6 +13,8 @@ services:
     dockerfilePath: ./Dockerfile
     plan: free
     region: singapore
+    branch: main
+    autoDeploy: true
     healthCheckPath: /api/health
 
     # free 方案不支援持久化磁碟，重新部署或服務休眠後資料會回到種子狀態。
@@ -42,10 +44,19 @@ services:
         generateValue: true
 
       # 管理後台的密碼。預設讓 Render 隨機產生（值在 Environment 頁面可以看到）。
-      # 若希望對外公開管理後台的登入方式，
-      # 把 generateValue 改成 value: 你想公開的密碼。
+      # 注意：本檔在版控裡，千萬不要把實際密碼寫成 value——那會連同歷史紀錄永久進到 repo。
       - key: ADMIN_PASSWORD
         generateValue: true
+
+      # 沙盒金流。改成其他值就不會掛載模擬金流商的路由；
+      # 對接真實金流商時，記得同時用 PAYMENT_HASH_KEY / PAYMENT_HASH_IV 帶入正式金鑰。
+      - key: PAYMENT_PROVIDER
+        value: sandbox
+
+      # 收掉「模擬 Google 登入」按鈕：該按鈕會把所有訪客登入同一個共用展示帳號
+      # （含其餘額與票券），公開網址上不該開啟（見 README 已知限制）。
+      - key: DEMO_GOOGLE_LOGIN
+        value: "false"
 
       # 第一次部署完成後，把 Render 給的網址（https://xxx.onrender.com）填進來。
       # sync: false 代表這個值由後台手動填，不寫在版控裡。
