@@ -135,7 +135,8 @@ const createShowtime = writeTransaction(({ movieId, theaterId, date, time, price
     const db = getDb();
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) throw badRequest('日期格式須為 YYYY-MM-DD');
-    if (!/^\d{2}:\d{2}$/.test(String(time))) throw badRequest('時間格式須為 HH:MM');
+    // 小時 00–23、分鐘 00–59：放寬到任意兩位數的話，99:99 這種永不開演的幽靈場次也排得出來
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(time))) throw badRequest('時間格式須為 HH:MM');
     if (!Number.isInteger(price) || price <= 0) throw badRequest('票價必須是正整數');
     if (date < toLocalDateStr()) throw badRequest('不能排在過去的日期');
 

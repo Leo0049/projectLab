@@ -745,6 +745,19 @@ async function main() {
     });
     check('同廳同時段撞片被擋下 (409)', clash.status === 409, `status=${clash.status}`);
 
+    // 時間必須是真正的 HH:MM：99:99 能通過格式的話，會排出永不開演的幽靈場次
+    const ghostTime = await api('POST', '/api/admin/showtimes', {
+        token: adminToken,
+        body: { movieId: 1, theaterId: 2, date: futureDateStr, time: '99:99', price: 260 }
+    });
+    check('時間 99:99 被擋下 (400)', ghostTime.status === 400, `status=${ghostTime.status}`);
+
+    const shortHour = await api('POST', '/api/admin/showtimes', {
+        token: adminToken,
+        body: { movieId: 1, theaterId: 2, date: futureDateStr, time: '7:30', price: 260 }
+    });
+    check('時間 7:30 缺前導零被擋下 (400)', shortHour.status === 400, `status=${shortHour.status}`);
+
     const pastSchedule = await api('POST', '/api/admin/showtimes', {
         token: adminToken,
         body: { movieId: 1, theaterId: 2, date: '2020-01-01', time: '10:00', price: 260 }
