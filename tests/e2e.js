@@ -19,7 +19,7 @@ process.env.JWT_SECRET = 'e2e-secret';
 
 const { chromium } = require('playwright');
 const { createApp, initDatabase } = require('../server/app');
-const { closeDb } = require('../server/db');
+const { getDb, closeDb } = require('../server/db');
 
 const problems = [];
 let passed = 0;
@@ -554,6 +554,29 @@ async function testAdminConsole(browser, errors) {
     check('會員列表已載入', await page.locator('#admin-user-list tr').count() >= 4);
 }
 
+/* ------------------------------------------------------------------ *
+ * 電影詳情頁 XSS 跳脫
+ * ------------------------------------------------------------------ */
+
+async function testMovieDetailEscaping(browser, errors) {
+    const page = await (await browser.newContext()).newPage();
+    watchErrors(page, errors);
+
+    console.log('\n# 電影詳情頁：特殊字元跳脫');
+    // 直接把暫存資料庫裡的電影標題改成含 HTML 特殊字元的字串，
+    // 模擬資料層被塞入 HTML 的情境。選用沒有其他測試依賴的電影 id 8，
+    // 且本區塊在最後執行，不會干擾前面測試的資料假設。
+    const payload = '<b>逃出</b>&\'"克隆島';
+    getDb().prepare('UPDATE movies SET title = ? WHERE id = ?').run(payload, 8);
+
+    await page.goto(`${BASE}/movie-detail.html?id=8`);
+    await page.waitForSelector('#movie-detail-container .card-title');
+    const rendered = await page.locator('#movie-detail-container').textContent();
+    check('特殊字元以原文完整顯示', rendered.includes(payload));
+    check('注入的標籤不會被解析成元素',
+        await page.evaluate(() => document.querySelector('#movie-detail-container b') === null));
+}
+
 /* ------------------------------------------------------------------ */
 
 async function main() {
@@ -578,6 +601,7 @@ async function main() {
         await testInfiniteScrollAndSidebar(browser, errors);
         await testAccountFlow(browser, errors);
         await testAdminConsole(browser, errors);
+        await testMovieDetailEscaping(browser, errors);
     } catch (error) {
         problems.push(`測試中斷: ${error.message}`);
         console.error('\n測試中斷:', error);
