@@ -153,13 +153,13 @@ const ensureUpcomingShowtimes = writeTransaction(() => {
         VALUES (@movieId, @theaterId, @date, @time, @price)
     `);
 
-    const today = new Date();
+    // 以台灣日曆日期做 UTC 日曆運算，避免排片日期受主機時區影響。
+    const [year, month, day] = toLocalDateStr().split('-').map(Number);
     let created = 0;
 
     for (let dayOffset = 0; dayOffset < config.SCHEDULE_DAYS; dayOffset++) {
-        const date = new Date(today);
-        date.setDate(today.getDate() + dayOffset);
-        const dateStr = toLocalDateStr(date);
+        const date = new Date(Date.UTC(year, month - 1, day + dayOffset));
+        const dateStr = date.toISOString().slice(0, 10);
 
         if (countForDate.get(dateStr).n > 0) continue;
 

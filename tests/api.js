@@ -19,6 +19,7 @@ process.env.JWT_SECRET = 'test-secret';
 
 const { createApp, initDatabase } = require('../server/app');
 const { getDb, closeDb } = require('../server/db');
+const { toLocalDateStr, toLocalTimeStr, localDateTimeToDate } = require('../server/utils/dates');
 
 const problems = [];
 let passed = 0;
@@ -32,6 +33,12 @@ function check(name, condition, detail = '') {
         console.log(`  ✗ ${name} ${detail}`);
     }
 }
+
+const timezoneBoundary = new Date('2026-01-01T16:30:00.000Z');
+check('營業日期與時間固定使用台北時區',
+    toLocalDateStr(timezoneBoundary) === '2026-01-02' &&
+    toLocalTimeStr(timezoneBoundary) === '00:30' &&
+    localDateTimeToDate('2026-01-02', '00:30').getTime() === timezoneBoundary.getTime());
 
 let BASE = '';
 
@@ -237,8 +244,7 @@ async function main() {
 
     const showtimes = await api('GET', '/api/showtimes');
     check('場次清單非空', showtimes.data.showtimes?.length > 0);
-    const nowIso = new Date();
-    const today = `${nowIso.getFullYear()}-${String(nowIso.getMonth() + 1).padStart(2, '0')}-${String(nowIso.getDate()).padStart(2, '0')}`;
+    const today = toLocalDateStr(new Date());
     check('不會回傳過去的場次',
         showtimes.data.showtimes.every(st => st.date >= today));
 
@@ -1066,6 +1072,21 @@ async function main() {
     check('正式環境缺少 ADMIN_PASSWORD 會拒絕啟動',
         noAdminPw.code === 1 && noAdminPw.stderr.includes('ADMIN_PASSWORD'),
         `code=${noAdminPw.code} stderr=${noAdminPw.stderr.trim()}`);
+
+    const blankSecrets = await runStartup({
+        NODE_ENV: 'production', JWT_SECRET: '   ', ADMIN_PASSWORD: '  '
+    });
+    check('正式環境拒絕只有空白的 JWT_SECRET 與 ADMIN_PASSWORD',
+        blankSecrets.code === 1 && blankSecrets.stderr.includes('JWT_SECRET') &&
+        blankSecrets.stderr.includes('ADMIN_PASSWORD'),
+        `code=${blankSecrets.code} stderr=${blankSecrets.stderr.trim()}`);
+
+    const noPaymentKeys = await runStartup({
+        PAYMENT_PROVIDER: 'ecpay', PAYMENT_HASH_KEY: '', PAYMENT_HASH_IV: ''
+    });
+    check('非沙盒金流缺少簽章金鑰會拒絕啟動',
+        noPaymentKeys.code === 1 && noPaymentKeys.stderr.includes('PAYMENT_HASH_KEY'),
+        `code=${noPaymentKeys.code} stderr=${noPaymentKeys.stderr.trim()}`);
 
     /* ---------------- 收尾 ---------------- */
     server.close();

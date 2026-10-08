@@ -4,6 +4,8 @@
 #   fly volumes create faketheater_data --size 1 --region nrt
 #   fly secrets set JWT_SECRET="$(openssl rand -hex 32)" ADMIN_PASSWORD="你的密碼"
 #   fly secrets set PUBLIC_URL="https://你的app名稱.fly.dev"
+#   # 目前預設使用沙盒；切換成真實金流前，須先實作 provider adapter。
+#   # 非沙盒模式另需設定 PAYMENT_HASH_KEY 與 PAYMENT_HASH_IV。
 #   fly deploy
 #
 # app 名稱請改成你自己註冊的（fly launch 會問）。

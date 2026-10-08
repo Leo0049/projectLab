@@ -3,7 +3,7 @@
 const { getDb, writeTransaction } = require('../db');
 const config = require('../config');
 const { badRequest, notFound, conflict } = require('../utils/http');
-const { toLocalDateStr, toLocalTimeStr } = require('../utils/dates');
+const { toLocalDateStr, toLocalTimeStr, localDateTimeToDate } = require('../utils/dates');
 const seatService = require('./seats');
 
 /**
@@ -143,7 +143,7 @@ function archiveExpiredTickets(userId) {
  * 場次的開演時間（本地時區）
  */
 function showtimeStartTime(date, time) {
-    return new Date(`${date}T${time}:00`);
+    return localDateTimeToDate(date, time);
 }
 
 /**

@@ -169,6 +169,20 @@ async function testMainFlow(browser, errors) {
     check('時刻表有電影', await page.locator('.schedule-card').count() > 0);
     check('日期按鈕 = 7', await page.locator('.date-btn').count() === 7);
 
+    const otherTimezone = await browser.newContext({ timezoneId: 'America/Los_Angeles' });
+    const timezonePage = await otherTimezone.newPage();
+    await timezonePage.goto(`${BASE}/schedule.html`);
+    await timezonePage.waitForSelector('.date-btn.btn-primary');
+    const timezoneDates = await timezonePage.evaluate(() => ({
+        fixedDate: DataAPI.getLocalDateStr(new Date('2026-01-01T16:30:00.000Z')),
+        today: DataAPI.getLocalDateStr(),
+        selected: document.querySelector('.date-btn.btn-primary')?.dataset.date
+    }));
+    check('台北日期不受瀏覽器時區影響',
+        timezoneDates.fixedDate === '2026-01-02' && timezoneDates.today === timezoneDates.selected,
+        JSON.stringify(timezoneDates));
+    await otherTimezone.close();
+
     await page.goto(`${BASE}/movie-detail.html?id=1`);
     await page.waitForSelector('.showtime-slot');
     check('詳情頁有場次', await page.locator('.showtime-slot').count() > 0);

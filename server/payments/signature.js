@@ -64,7 +64,12 @@ function createCheckMacValue(params, hashKey, hashIV) {
  * @returns {boolean}
  */
 function verifyCheckMacValue(params, hashKey, hashIV) {
+    // 空金鑰會讓簽章退化成可預測的公開雜湊，不能視為有效設定。
+    if (!String(hashKey || '').trim() || !String(hashIV || '').trim()) return false;
+
     const received = String(params.CheckMacValue || '');
+    if (!/^[0-9a-f]{64}$/i.test(received)) return false;
+
     const expected = createCheckMacValue(params, hashKey, hashIV);
 
     if (received.length !== expected.length) return false;

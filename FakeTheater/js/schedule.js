@@ -204,7 +204,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             'TopPick': '⭐ 強檔',
             'ComingSoon': '📢 即將上映'
         };
-        return labels[category] || category;
+        return labels[category] || escapeHtml(category);
     }
 
     // 初始化頁面

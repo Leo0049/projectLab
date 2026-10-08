@@ -3,7 +3,8 @@
 const crypto = require('crypto');
 const { getDb, writeTransaction } = require('../db');
 const config = require('../config');
-const { badRequest, notFound } = require('../utils/http');
+const { badRequest, notFound, HttpError } = require('../utils/http');
+const { toLocalDateTimeStr } = require('../utils/dates');
 const { createCheckMacValue, verifyCheckMacValue } = require('../payments/signature');
 
 /**
@@ -30,6 +31,13 @@ const { createCheckMacValue, verifyCheckMacValue } = require('../payments/signat
  * 如果把 expired 當成終態，就會發生「使用者付了錢卻沒入帳」。
  */
 const TERMINAL_STATUSES = new Set(['paid', 'failed']);
+
+function assertPaymentSigningKeys() {
+    if (!String(config.PAYMENT_HASH_KEY || '').trim() ||
+        !String(config.PAYMENT_HASH_IV || '').trim()) {
+        throw new HttpError(503, '金流簽章設定未完成，暫時無法處理付款');
+    }
+}
 
 /**
  * 產生我方訂單編號。金流商通常限制英數且有長度上限——
@@ -64,6 +72,8 @@ function expireStaleOrders() {
  * @param {string} origin - 例如 http://localhost:3000
  */
 const createDepositOrder = writeTransaction((userId, amount, origin) => {
+    assertPaymentSigningKeys();
+
     if (!Number.isInteger(amount) || amount < config.PAYMENT_MIN_AMOUNT) {
         throw badRequest(`儲值金額最低為 NT$ ${config.PAYMENT_MIN_AMOUNT}`);
     }
@@ -84,7 +94,7 @@ const createDepositOrder = writeTransaction((userId, amount, origin) => {
     const formData = {
         MerchantID: config.PAYMENT_MERCHANT_ID,
         MerchantTradeNo: merchantOrderNo,
-        MerchantTradeDate: new Date().toLocaleString('sv-SE').replace('-', '/').replace('-', '/'),
+        MerchantTradeDate: toLocalDateTimeStr(),
         PaymentType: 'aio',
         TotalAmount: String(amount),
         TradeDesc: 'FakeTheater 錢包儲值',
@@ -122,6 +132,8 @@ const createDepositOrder = writeTransaction((userId, amount, origin) => {
  * @returns {{orderNo:string, status:string, alreadyProcessed:boolean}}
  */
 const handleCallback = writeTransaction((params) => {
+    assertPaymentSigningKeys();
+
     if (!verifyCheckMacValue(params, config.PAYMENT_HASH_KEY, config.PAYMENT_HASH_IV)) {
         throw badRequest('簽章驗證失敗');
     }
@@ -246,6 +258,8 @@ function getPendingOrderForSandbox(merchantOrderNo) {
  * @param {boolean} success
  */
 function buildSandboxCallback(merchantOrderNo, success) {
+    assertPaymentSigningKeys();
+
     const order = getDb().prepare('SELECT amount FROM payment_orders WHERE merchant_order_no = ?')
         .get(merchantOrderNo);
 
@@ -256,7 +270,7 @@ function buildSandboxCallback(merchantOrderNo, success) {
         MerchantTradeNo: merchantOrderNo,
         TradeNo: `SB${Date.now()}`,
         TradeAmt: String(order.amount),
-        PaymentDate: new Date().toLocaleString('sv-SE'),
+        PaymentDate: toLocalDateTimeStr(),
         PaymentType: 'Credit_CreditCard',
         RtnCode: success ? '1' : '0',
         RtnMsg: success ? '交易成功' : '交易失敗',

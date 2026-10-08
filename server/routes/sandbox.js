@@ -185,26 +185,51 @@ router.post('/pay', async (req, res, next) => {
         const success = req.body?.result === 'success';
 
         const callbackParams = paymentService.buildSandboxCallback(orderNo, success);
-
-        // 伺服器對伺服器通知。
-        // 回調位址一律由這條連線的實際本地位址組出來，完全不看表單傳來的 ReturnURL——
-        // 否則任何人都能讓伺服器對他指定的位址發出請求（SSRF）。
-        try {
-            await fetch(internalUrl(req, '/api/payments/webhook'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: new URLSearchParams(callbackParams).toString()
-            });
-        } catch (error) {
-            console.error('沙盒回調失敗:', error);
-        }
-
-        // 導回特店。降級成相對路徑，跨站轉址的可能性直接消失。
         const backPath = toLocalPath(req.body?.ClientBackURL, '/', publicOrigin(req));
         const separator = backPath.includes('?') ? '&' : '?';
         const backUrl = `${backPath}${separator}order=${encodeURIComponent(orderNo)}` +
             `&result=${success ? 'success' : 'fail'}`;
 
+        // 伺服器對伺服器通知。
+        // 回調位址一律由這條連線的實際本地位址組出來，完全不看表單傳來的 ReturnURL——
+        // 否則任何人都能讓伺服器對他指定的位址發出請求（SSRF）。
+        let callbackConfirmed = false;
+        let callbackError = null;
+        try {
+            const response = await fetch(internalUrl(req, '/api/payments/webhook'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams(callbackParams).toString()
+            });
+            const acknowledgement = (await response.text()).trim();
+            const acknowledgementMatches = acknowledgement === '1|OK' ||
+                (!success && acknowledgement === '0|FAIL');
+            callbackConfirmed = response.ok && acknowledgementMatches;
+        } catch (error) {
+            callbackError = error;
+        }
+
+        if (!callbackConfirmed) {
+            console.error('沙盒回調未獲確認:', callbackError || 'webhook 回應狀態或內容不符');
+            return res.status(502).send(renderPage('付款結果尚未確認', `
+                <div class="gateway-header">
+                    <h1>付款結果尚未確認</h1>
+                    <p>Sandbox Payment Gateway</p>
+                </div>
+                <div class="gateway-body">
+                    <div class="status">
+                        <div class="icon">⏳</div>
+                        <h2>尚未收到本站確認</h2>
+                        <p>請返回 FakeTheater 查看訂單狀態，稍後再試。</p>
+                        <a href="${escapeHtml(backUrl)}" style="display:inline-block;margin-top:18px;color:#16406b">
+                            返回 FakeTheater
+                        </a>
+                    </div>
+                </div>
+            `));
+        }
+
+        // 導回特店。降級成相對路徑，跨站轉址的可能性直接消失。
         res.redirect(303, backUrl);
     } catch (error) {
         next(error);

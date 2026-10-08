@@ -21,6 +21,7 @@ RUN npm ci --omit=dev
 FROM node:22-slim
 
 ENV NODE_ENV=production \
+    TZ=Asia/Taipei \
     PORT=3000 \
     DB_PATH=/data/faketheater.db
 

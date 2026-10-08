@@ -275,7 +275,7 @@ function renderBookingCard(booking) {
                     ${booking.seats.map(seat => `
                         <span class="admin-seat ${seat.status === 'refunded' ? 'is-refunded' : ''}">
                             ${escapeHtml(seat.label)}
-                            <small>${seatStatusLabel(seat.status)}</small>
+                            <small>${escapeHtml(seatStatusLabel(seat.status))}</small>
                             ${seat.status === 'unused' ? `
                                 <button type="button" class="admin-refund-btn"
                                         data-ticket-id="${seat.id}"

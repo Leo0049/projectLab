@@ -8,6 +8,13 @@
  */
 
 const TOKEN_KEY = 'ft_token';
+const BUSINESS_TIME_ZONE = 'Asia/Taipei';
+const BUSINESS_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+});
 
 /**
  * 帶著 HTTP 狀態與後端附加資訊的錯誤，讓呼叫端能分辨「座位被搶走」與「網路斷線」
@@ -112,12 +119,15 @@ const DataAPI = {
      * -------------------------------------------------------------- */
 
     /**
-     * 取得本地時區的 YYYY-MM-DD（不可用 toISOString，那是 UTC）
+     * 取得營業時區（台北）的 YYYY-MM-DD。
      */
     getLocalDateStr(date = new Date()) {
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
+        const parts = Object.fromEntries(
+            BUSINESS_DATE_FORMATTER.formatToParts(date)
+                .filter(part => part.type !== 'literal')
+                .map(part => [part.type, part.value])
+        );
+        const { year, month, day } = parts;
         return `${year}-${month}-${day}`;
     },
 
@@ -126,16 +136,17 @@ const DataAPI = {
      */
     getNextDays(days = 5) {
         const result = [];
-        const today = new Date();
+        const [year, month, day] = this.getLocalDateStr().split('-').map(Number);
         const dayNames = ['日', '一', '二', '三', '四', '五', '六'];
 
         for (let i = 0; i < days; i++) {
-            const date = new Date(today);
-            date.setDate(today.getDate() + i);
+            // 用 UTC 日曆運算，確保日期與星期不依瀏覽器所在時區改變。
+            const date = new Date(Date.UTC(year, month - 1, day + i, 12));
+            const dateStr = date.toISOString().slice(0, 10);
             result.push({
-                dateStr: this.getLocalDateStr(date),
-                displayStr: `${date.getMonth() + 1}/${date.getDate()}`,
-                dayOfWeek: dayNames[date.getDay()],
+                dateStr,
+                displayStr: `${date.getUTCMonth() + 1}/${date.getUTCDate()}`,
+                dayOfWeek: dayNames[date.getUTCDay()],
                 isToday: i === 0
             });
         }

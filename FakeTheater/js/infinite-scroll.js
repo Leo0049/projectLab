@@ -77,7 +77,7 @@ class InfiniteScroll {
     showError(message) {
         this.setSentinel(`
             <div class="infinite-error">
-                <p class="mb-2">${message}</p>
+                <p class="mb-2">${escapeHtml(message)}</p>
                 <button type="button" class="btn btn-sm btn-outline-primary" data-retry>重試</button>
             </div>
         `);

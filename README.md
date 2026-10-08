@@ -148,7 +148,7 @@ CREATE UNIQUE INDEX idx_booking_seats_unique
 **購票是從錢包餘額扣款，儲值才走金流。** 這樣金流的整合面積小、責任單一，
 也符合多數售票 App 的做法。系統裡沒有任何「不用付錢就能加值」的端點。
 
-付款流程與綠界 ECPay 正式環境一致：
+沙盒流程使用綠界 ECPay 的 CheckMacValue 格式作為參考；目前只有沙盒付款頁與回調完整可用：
 
 ```
 使用者按下儲值
@@ -157,7 +157,7 @@ CREATE UNIQUE INDEX idx_booking_seats_unique
 POST /api/payments/deposit      建立 pending 訂單，回傳已簽章的表單參數
       │
       ▼
-表單 POST 到金流商付款頁          沙盒是 /sandbox/checkout，正式環境改成綠界網址
+表單 POST 到沙盒付款頁            /sandbox/checkout（尚未實作真實金流商付款頁）
       │
       ├─ 伺服器對伺服器通知 ─→ POST /api/payments/webhook   ← 真正入帳的地方
       │                          驗簽 → 比對金額 → 入帳（冪等）
@@ -180,9 +180,16 @@ POST /api/payments/deposit      建立 pending 訂單，回傳已簽章的表單
 | SSRF | 沙盒的伺服器對伺服器回調位址由連線的實際本地位址組出，完全不看外部輸入 |
 | 開放轉址 | 返回頁一律降級成相對路徑，絕對網址還必須與 `PUBLIC_URL` 同源 |
 
-要換成真的綠界／藍新：把 `PAYMENT_PROVIDER` 改掉（沙盒路由就不會再掛載）、
-`createDepositOrder()` 裡的 `action` 換成金流商網址、填入正式的 MerchantID 與金鑰。
-參數與簽章規則完全不用動。
+目前完整實作的付款流程只有沙盒。單獨把 `PAYMENT_PROVIDER` 改成其他值只會停用 `/sandbox/*`，
+不會自動接上綠界或藍新；非沙盒模式也必須設定 `PAYMENT_HASH_KEY` 與 `PAYMENT_HASH_IV`，
+否則伺服器會拒絕啟動。正式串接仍須實作該金流商的付款網址、欄位格式、回調驗證與對帳流程，
+不能只填金鑰就視為已可收款。
+
+## 時區
+
+場次日期與營業時間固定使用 `Asia/Taipei`。伺服器排片、開演／退票判斷與前端日期選擇都採用同一時區，
+不會因容器主機或瀏覽器設在其他時區而改變營業日。Docker 映像也設定 `TZ=Asia/Taipei`，
+供其他依賴作業系統時區的工具保持一致；此時區不需要另外設定環境變數。
 
 ## 退票
 
@@ -229,15 +236,16 @@ CREATE UNIQUE INDEX idx_booking_seats_unique
 | 授權分級 | 管理端點需 admin 角色，角色一律從資料庫讀取而非權杖內容 |
 | 加值 | 沒有可直接加值的端點，一律經過金流回調並驗簽 |
 | 金流回調 | CheckMacValue 驗簽（webhook 的身分驗證基礎）+ 金額比對 + 冪等 + 失敗標記持久化 |
-| 沙盒簽章金鑰 | 未設定環境變數時，每次啟動以 `crypto.randomBytes` 隨機產生，公開流傳的綠界測試金鑰不再有效；對接真實金流商時用 `PAYMENT_HASH_KEY` / `PAYMENT_HASH_IV` 覆寫 |
+| 簽章金鑰 | 沙盒未設定時每次啟動以 `crypto.randomBytes` 隨機產生；非沙盒模式缺少 `PAYMENT_HASH_KEY` / `PAYMENT_HASH_IV` 時拒絕啟動，空金鑰或格式錯誤的簽章不會通過驗證 |
 | SSRF | 伺服器主動發出的請求位址不接受任何外部輸入 |
 | 開放轉址 | 轉址目標一律是相對路徑 |
 | 錯誤訊息 | 帳號不存在與密碼錯誤回同一句話，避免被用來列舉帳號 |
 | 輸入驗證 | 座位範圍、張數上限、金額上下限、分頁上下界都在伺服器檢查 |
 | XSS | 前端所有動態插入的內容都經過 `escapeHtml()` |
 | 錯誤回應 | 非預期錯誤只回通用訊息，不洩漏堆疊或 SQL |
-| 部署預設值 | 正式環境未設定 `JWT_SECRET` 或 `ADMIN_PASSWORD` 時拒絕啟動 |
+| 部署預設值 | 正式環境的 `JWT_SECRET` 或 `ADMIN_PASSWORD` 未設定、為空白，或非沙盒金流缺少簽章金鑰時拒絕啟動 |
 | 代理標頭 | 預設不信任 `X-Forwarded-*`，需由部署方明確開啟 `TRUST_PROXY` |
+| 日期時區 | 營業日期與時間固定使用 `Asia/Taipei`，不依賴主機或瀏覽器時區 |
 
 ## API
 
@@ -365,16 +373,16 @@ payment_orders  金流訂單（pending / paid / failed / expired）
 
 | 變數 | 預設 | 說明 |
 |---|---|---|
-| `JWT_SECRET` | 開發用預設值 | **正式環境必須設定**，未設定時伺服器會拒絕啟動 |
-| `ADMIN_PASSWORD` | 沿用種子資料 | **正式環境必須設定**，會覆寫管理員密碼並使 `admin123` 失效 |
+| `JWT_SECRET` | 開發用預設值 | **正式環境必須設定為非空白值**，未設定或只有空白時伺服器會拒絕啟動 |
+| `ADMIN_PASSWORD` | 沿用種子資料 | **正式環境必須設定為非空白值**，會覆寫管理員密碼並使 `admin123` 失效 |
 | `PUBLIC_URL` | 由 Host 標頭推導 | 對外網址。Host 可被偽造，正式環境請明確設定 |
 | `TRUST_PROXY` | 關閉 | 部署在反向代理後方時設為 `1`，才會採信 `X-Forwarded-Proto` |
 | `DB_PATH` | `server/data/faketheater.db` | 資料庫檔案位置 |
 | `PORT` | `3000` | 伺服器連接埠 |
 | `SEAT_LOCK_TTL_MS` | `300000` | 座位保留時間 |
-| `PAYMENT_PROVIDER` | `sandbox` | 改成其他值就不會掛載沙盒金流路由 |
+| `PAYMENT_PROVIDER` | `sandbox` | 改成其他值會停用沙盒路由；目前沒有內建真實金流商 adapter |
 | `PAYMENT_ORDER_TTL_MS` | `900000` | 金流訂單多久未付款就失效 |
-| `PAYMENT_HASH_KEY` / `PAYMENT_HASH_IV` | 沙盒模式未設定時，每次啟動隨機產生 | CheckMacValue 簽章金鑰。對接真實金流商的測試／正式環境時才需要設定 |
+| `PAYMENT_HASH_KEY` / `PAYMENT_HASH_IV` | 沙盒模式未設定時，每次啟動隨機產生 | CheckMacValue 簽章金鑰。非沙盒模式必填；缺少或只有空白時拒絕啟動。填入金鑰本身不會完成金流商串接 |
 | `REFUND_FEE_RATE` | `0.1` | 退票手續費比例，設 `0` 表示不收。必須落在 `[0, 1]`，超出範圍時伺服器拒絕啟動 |
 | `REFUND_CUTOFF_MINUTES` | `30` | 開演前幾分鐘停止受理退票。不得為負數，違反時伺服器拒絕啟動 |
 | `DEMO_GOOGLE_LOGIN` | `true` | 「模擬 Google 登入」按鈕開關。該按鈕會把所有訪客登入同一個共用展示帳號，公開部署建議設 `false` |
@@ -506,7 +514,7 @@ docker run -p 3000:3000 -v faketheater-data:/data \
 
 ### 部署時要注意的三件事
 
-- **`ADMIN_PASSWORD` 一定要設**。沒設定時 `NODE_ENV=production` 的伺服器會拒絕啟動，
+- **`JWT_SECRET` 與 `ADMIN_PASSWORD` 一定要設成非空白值**。缺少或只有空白時 `NODE_ENV=production` 的伺服器會拒絕啟動，
   這是刻意的——公開網址上的管理後台不能用 README 寫著的密碼進得去。
   改設定後重新部署時，既有資料庫裡的舊密碼也會一併被覆寫。
 - **`TRUST_PROXY=1`**。平台的反向代理用 `X-Forwarded-Proto` 告知原始通訊協定，
@@ -644,14 +652,17 @@ A 重新整理     → 執行個體 2 → 另一個全新的資料庫
 沙盒簽章金鑰直接用著綠界公開文件上的測試金鑰（等於沒有金鑰）、電影詳情頁有一處跳過
 `escapeHtml()` 的渲染路徑、退票手續費率可以設成負數（退一張賺一張）、排片時間驗證放行
 `99:99` 這種永不開演的場次，以及速率限制的可繞過條件沒有揭露在文件裡。
-每一項同樣補上了回歸測試或揭露，兩份測試合計從 216 項成長到如今的 230 項。
+每一項同樣補上了回歸測試或揭露，當時兩份測試合計從 216 項成長到 230 項。
+後續複審再補上台北時區跨日、不同瀏覽器時區、部署金鑰 fail-closed 等回歸檢查；
+目前 API 測試 148 項、瀏覽器測試 86 項，合計 234 項。
 
 ## 已知限制
 
 這是作品展示用的專案，以下是刻意保留的簡化：
 
-- **金流是沙盒，不是真實交易**。付款頁與回調由本專案模擬，簽章演算法與流程和綠界正式環境相同，
+- **金流目前只有沙盒，不是真實交易**。付款頁與回調由本專案模擬，簽章演算法與流程參照綠界格式，
   但不會向任何金融機構請款。這是一間虛構影城、放的是不存在的電影，收真錢等於賣無法交付的商品。
+  只改 `PAYMENT_PROVIDER` 並填入金鑰不會啟用真實收款，必須先完成金流商 adapter。
 - **「Google 登入」是模擬的**，固定綁在一組展示帳號上，不會真的走 OAuth。
   所有點擊的訪客都會登入同一個共用帳號（含該帳號的餘額與票券），
   公開部署時建議設定 `DEMO_GOOGLE_LOGIN=false` 收掉按鈕，或改接真實 OAuth。
