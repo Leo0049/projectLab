@@ -84,7 +84,9 @@ function toLocalPath(candidate, fallbackPath = '/', trustedOrigin = null) {
         }
     }
 
-    return `${url.pathname}${url.search}`;
+    // pathname 可能以多個 / 開頭：http://本站//evil.com 解析後 pathname 是 //evil.com，
+    // 直接回傳的話瀏覽器會當成跨站網址。收合成單一 / 再回傳，結果永遠是站內路徑。
+    return `/${url.pathname.replace(/^\/+/, '')}${url.search}`;
 }
 
 module.exports = { publicOrigin, internalUrl, toLocalPath };

@@ -12,26 +12,25 @@ const crypto = require('crypto');
  *   1. 參數依照鍵名的字典序排序（不分大小寫）
  *   2. 前後接上 HashKey 與 HashIV
  *   3. 整串做 URL encode，再轉小寫
- *   4. 套用 .NET UrlEncode 的字元差異
+ *   4. 依綠界字元表還原 - _ . ! * ( )，' 與 ~ 維持跳脫（見 dotNetUrlEncode）
  *   5. SHA256 後轉大寫
  */
 
 /**
- * .NET 的 HttpUtility.UrlEncode 與 JavaScript 的 encodeURIComponent 對部分字元處理不同，
- * 綠界的規格是以前者為準，這裡把差異補回來。
+ * 綠界 AIO 的 URL encode 規則：先做 urlencode、轉小寫，再把 - _ . ! * ( ) 還原成原字元。
+ *
+ * 這裡的實作與上述規則逐字元一致，而且已用 PHP 的 urlencode（綠界官方 PHP SDK 的作法）
+ * 對上千組隨機字串比對過，結果完全相同。
+ *   - encodeURIComponent 本來就不跳脫 - _ . ! * ( )，等同於「跳脫後再還原」
+ *   - 但它不跳脫 ' 與 ~，而 urlencode 會把它們編成 %27 與 %7e，而且還原表不包含這兩個字元，
+ *     所以必須明確補上，否則內容含有這兩個字元時簽章會與綠界對不上
  */
 function dotNetUrlEncode(value) {
     return encodeURIComponent(value)
-        .toLowerCase()
+        .replace(/'/g, '%27')
+        .replace(/~/g, '%7E')
         .replace(/%20/g, '+')
-        .replace(/%21/g, '!')
-        .replace(/%27/g, "'")
-        .replace(/%28/g, '(')
-        .replace(/%29/g, ')')
-        .replace(/%2a/g, '*')
-        .replace(/%2d/g, '-')
-        .replace(/%2e/g, '.')
-        .replace(/%5f/g, '_');
+        .toLowerCase();
 }
 
 /**

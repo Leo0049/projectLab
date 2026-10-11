@@ -73,6 +73,21 @@ function readPagination(req, { defaultLimit = 20, maxLimit = 100 } = {}) {
     return { limit, offset };
 }
 
+/**
+ * 讀取單一字串型的查詢參數。
+ *
+ * Express 會把重複的鍵解析成陣列（?category=a&category=b），
+ * 方括號語法則會變成物件（?category[x]=1）。這些型別直接丟給 SQL 綁定參數會變成 500，
+ * 所以只接受真正的字串，其他形式一律當作沒有傳這個參數。
+ * @param {import('express').Request} req
+ * @param {string} name
+ * @returns {string|undefined}
+ */
+function queryString(req, name) {
+    const value = req.query[name];
+    return typeof value === 'string' ? value : undefined;
+}
+
 module.exports = {
-    HttpError, badRequest, unauthorized, notFound, conflict, parseSeats, readPagination
+    HttpError, badRequest, unauthorized, notFound, conflict, parseSeats, readPagination, queryString
 };
