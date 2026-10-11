@@ -75,6 +75,23 @@ if (REFUND_CUTOFF_MINUTES < 0) {
         `設定錯誤：REFUND_CUTOFF_MINUTES 必須 >= 0，目前收到：${process.env.REFUND_CUTOFF_MINUTES}`);
 }
 
+// 定時補齊場次的間隔，未設定時每小時一次。
+// 這裡不用 numberEnv：它遇到無法解析的字串會默默退回預設值，拼錯的設定就悄悄生效了。
+const SCHEDULE_REFRESH_DEFAULT_MS = 60 * 60 * 1000;
+const scheduleRefreshRaw = String(process.env.SCHEDULE_REFRESH_MS ?? '').trim();
+const SCHEDULE_REFRESH_MS = scheduleRefreshRaw === ''
+    ? SCHEDULE_REFRESH_DEFAULT_MS
+    : Number(scheduleRefreshRaw);
+
+// 低於一分鐘沒有意義（場次是按日排的）；超過 2^31-1 毫秒時 setInterval 會被 Node 悄悄改成 1 毫秒。
+if (SCHEDULE_REFRESH_MS !== 0 &&
+    !(Number.isInteger(SCHEDULE_REFRESH_MS) &&
+      SCHEDULE_REFRESH_MS >= 60 * 1000 &&
+      SCHEDULE_REFRESH_MS <= 2147483647)) {
+    throw new Error(
+        `設定錯誤：SCHEDULE_REFRESH_MS 必須是 0（停用）或介於 60000 與 2147483647 之間的整數，目前收到：${scheduleRefreshRaw}`);
+}
+
 /**
  * 伺服器設定。正式環境請務必用環境變數覆寫 JWT_SECRET。
  */
@@ -111,6 +128,8 @@ module.exports = {
     SCHEDULE_DAYS: 7,
     SCHEDULE_TIMES: ['10:30', '13:00', '15:30', '18:00', '20:30', '23:00'],
     SCHEDULE_PRICES: [250, 280, 350, 300, 320, 380],
+    // 定時補齊場次的間隔（毫秒）。0 表示停用，只在啟動時補齊（見 server/schedule.js）
+    SCHEDULE_REFRESH_MS,
 
     // 票券進入「使用中」後多久歸檔到歷史票券
     TICKET_EXPIRY_MS: 60 * 1000,

@@ -3,7 +3,7 @@
 const express = require('express');
 const { getDb } = require('../db');
 const config = require('../config');
-const { notFound, readPagination } = require('../utils/http');
+const { notFound, readPagination, queryString } = require('../utils/http');
 const { toLocalDateStr, toLocalTimeStr } = require('../utils/dates');
 
 const router = express.Router();
@@ -35,7 +35,7 @@ router.get('/config', (req, res) => {
  * GET /api/movies?category=NowShowing
  */
 router.get('/movies', (req, res) => {
-    const category = req.query.category;
+    const category = queryString(req, 'category');
     const db = getDb();
 
     const movies = category
@@ -82,17 +82,21 @@ router.get('/showtimes', (req, res) => {
     const conditions = ['(s.date > @today OR (s.date = @today AND s.time > @currentTime))'];
     const params = { today, currentTime };
 
-    if (req.query.movieId) {
+    const movieId = queryString(req, 'movieId');
+    const date = queryString(req, 'date');
+    const theaterId = queryString(req, 'theaterId');
+
+    if (movieId) {
         conditions.push('s.movie_id = @movieId');
-        params.movieId = Number(req.query.movieId);
+        params.movieId = Number(movieId);
     }
-    if (req.query.date) {
+    if (date) {
         conditions.push('s.date = @date');
-        params.date = String(req.query.date);
+        params.date = date;
     }
-    if (req.query.theaterId) {
+    if (theaterId) {
         conditions.push('s.theater_id = @theaterId');
-        params.theaterId = Number(req.query.theaterId);
+        params.theaterId = Number(theaterId);
     }
 
     const db = getDb();

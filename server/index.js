@@ -2,6 +2,7 @@
 
 const config = require('./config');
 const { createApp, initDatabase } = require('./app');
+const { startScheduleRefresh } = require('./schedule');
 
 // 正式環境不允許沿用公開在原始碼裡的預設值。
 // 這兩個一旦是預設值，任何人都能偽造 token 或直接登入管理後台。
@@ -33,4 +34,10 @@ const app = createApp();
 app.listen(config.PORT, () => {
     console.log(`FakeTheater 已啟動： http://localhost:${config.PORT}`);
     console.log(`資料庫： ${config.DB_PATH}`);
+
+    // 長時間不重新部署時，排片視窗會往前推，需要定時補上新日期的場次
+    startScheduleRefresh({
+        intervalMs: config.SCHEDULE_REFRESH_MS,
+        onCreated: created => console.log(`定時補齊：新增 ${created} 個場次`)
+    });
 });

@@ -2,7 +2,7 @@
 
 const express = require('express');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
-const { badRequest, readPagination } = require('../utils/http');
+const { badRequest, readPagination, queryString } = require('../utils/http');
 const adminService = require('../services/admin');
 const bookingService = require('../services/bookings');
 
@@ -26,7 +26,7 @@ router.get('/stats', (req, res) => {
  * GET /api/admin/showtimes?date=&limit=&offset=
  */
 router.get('/showtimes', (req, res) => {
-    res.json(adminService.listShowtimes({ date: req.query.date, ...pagination(req) }));
+    res.json(adminService.listShowtimes({ date: queryString(req, 'date'), ...pagination(req) }));
 });
 
 /**

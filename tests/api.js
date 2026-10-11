@@ -20,6 +20,8 @@ process.env.JWT_SECRET = 'test-secret';
 const { createApp, initDatabase } = require('../server/app');
 const { getDb, closeDb } = require('../server/db');
 const { toLocalDateStr, toLocalTimeStr, localDateTimeToDate } = require('../server/utils/dates');
+const { toLocalPath } = require('../server/utils/urls');
+const { refreshSchedule, startScheduleRefresh } = require('../server/schedule');
 
 const problems = [];
 let passed = 0;
@@ -135,7 +137,7 @@ function runWorker(args) {
 }
 
 
-const { createCheckMacValue: signParams } = require('../server/payments/signature');
+const { createCheckMacValue: signParams, dotNetUrlEncode } = require('../server/payments/signature');
 const payCfg = require('../server/config');
 
 // 綠界公開文件上的測試金鑰——曾經直接寫死在原始碼裡的那組。
@@ -224,6 +226,77 @@ async function main() {
 
     const badToken = await api('GET', '/api/auth/me', { token: 'not-a-real-token' });
     check('偽造 token 被擋下 (401)', badToken.status === 401, `status=${badToken.status}`);
+
+    /* ---------------- 登入與註冊：耗時一致、競爭時不回 500 ---------------- */
+    console.log('\n# 登入與註冊的耗時不洩漏帳號是否存在');
+
+    // 用呼叫次數驗證，比量時間穩定：查無帳號也要跑一次比對，用戶名已存在也要先完成雜湊
+    const bcryptjs = require('bcryptjs');
+    const realCompare = bcryptjs.compare;
+    const realHash = bcryptjs.hash;
+    let compareCalls = 0;
+    let hashCalls = 0;
+    bcryptjs.compare = (...args) => { compareCalls++; return realCompare(...args); };
+    bcryptjs.hash = (...args) => { hashCalls++; return realHash(...args); };
+
+    try {
+        const beforeUnknown = compareCalls;
+        const unknownUser = await api('POST', '/api/auth/login', {
+            body: { username: 'no-such-user', password: 'whatever1' }
+        });
+        check('查無帳號的登入回應與密碼錯誤相同 (401)',
+            unknownUser.status === 401 && unknownUser.data?.error === '用戶名或密碼錯誤',
+            `status=${unknownUser.status}`);
+        check('查無帳號時仍會跑一次密碼比對', compareCalls - beforeUnknown === 1,
+            `calls=${compareCalls - beforeUnknown}`);
+
+        const beforeWrong = compareCalls;
+        await api('POST', '/api/auth/login', { body: { username: 'alice', password: 'wrong-password' } });
+        check('密碼錯誤時也只比對一次', compareCalls - beforeWrong === 1,
+            `calls=${compareCalls - beforeWrong}`);
+
+        const beforeDup = hashCalls;
+        const dupName = await api('POST', '/api/auth/register', {
+            body: { username: 'alice', email: 'alice-two@example.com', password: 'pass1234' }
+        });
+        check('用戶名已存在時仍先完成雜湊，再回 409',
+            dupName.status === 409 && hashCalls - beforeDup === 1,
+            `status=${dupName.status} hashes=${hashCalls - beforeDup}`);
+
+        const beforeNew = hashCalls;
+        const newcomer = await api('POST', '/api/auth/register', {
+            body: { username: 'carol', password: 'pass1234' }
+        });
+        check('新帳號註冊成功，且只雜湊一次',
+            newcomer.status === 201 && hashCalls - beforeNew === 1,
+            `status=${newcomer.status} hashes=${hashCalls - beforeNew}`);
+
+        // 查重之後、寫入之前若被別的行程搶先插入同名帳號，UNIQUE 約束會擋下，
+        // 必須回 409 而不是 500。用觸發器在寫入前插入一筆同名帳號，重現這個時間點。
+        getDb().exec(`
+            CREATE TRIGGER race_dave BEFORE INSERT ON users
+            WHEN NEW.username = 'dave' AND NEW.email = 'dave@example.com'
+            BEGIN
+                INSERT INTO users (username, email, password_hash, balance)
+                VALUES ('dave', 'dave-other@example.com', 'x', 0);
+            END;
+        `);
+        let raced;
+        try {
+            raced = await api('POST', '/api/auth/register', {
+                body: { username: 'dave', email: 'dave@example.com', password: 'pass1234' }
+            });
+        } finally {
+            getDb().exec('DROP TRIGGER race_dave');
+            getDb().prepare('DELETE FROM users WHERE username = ?').run('dave');
+        }
+        check('查重後才被搶先註冊的用戶名回 409（不是 500）',
+            raced.status === 409 && raced.data?.error === '用戶名已存在',
+            `status=${raced.status} body=${JSON.stringify(raced.data)}`);
+    } finally {
+        bcryptjs.compare = realCompare;
+        bcryptjs.hash = realHash;
+    }
 
     /* ---------------- 電影與場次 ---------------- */
     console.log('\n# 電影與場次');
@@ -550,6 +623,21 @@ async function main() {
     const signOracle = await fetch(`${BASE}/sandbox/sign?MerchantTradeNo=${attackOrderNo}&TradeAmt=500`);
     check('簽章神諭端點已移除 (404)', signOracle.status === 404, `status=${signOracle.status}`);
 
+    /* ---------------- 綠界 CheckMacValue 的字元編碼 ---------------- */
+    console.log('\n# 綠界 CheckMacValue 的字元編碼（與 PHP urlencode + 綠界還原表逐字一致）');
+
+    check("單引號與波浪號會被跳脫（urlencode 會編，還原表不還原）",
+        dotNetUrlEncode("a'b~c") === 'a%27b%7ec', dotNetUrlEncode("a'b~c"));
+    check('- _ . ! * ( ) 維持原字元，空白為 +',
+        dotNetUrlEncode('!*()-_. ') === '!*()-_.+', dotNetUrlEncode('!*()-_. '));
+    check('非 ASCII 以 UTF-8 位元組編碼並轉小寫', dotNetUrlEncode('錢') === '%e9%8c%a2');
+
+    // 期望值由 PHP 參考實作算出，鍵與值都含有 ' 與 ~
+    check("完整 CheckMacValue 與 PHP 參考實作一致（含 ' 與 ~）",
+        signParams({
+            MerchantID: '3002607', MerchantTradeNo: "it's~ok", TradeAmt: '300', RtnCode: '1', RtnMsg: "交易'成功~"
+        }, 'k~ey', "i'v") === 'C7895AEE8251B4EE145EA6AC8D867740A11B9BA7FBA5667CB9058BC997BB96C3');
+
 
     /* ---------------- 金流：邊界與濫用 ---------------- */
     console.log('\n# 金流：逾時與網址驗證');
@@ -626,6 +714,78 @@ async function main() {
     check('轉址一律是本站的相對路徑',
         location.startsWith('/') && !location.startsWith('//'), location);
     check('外部網址整個丟掉、退回首頁', location.startsWith('/?'), location);
+
+    // 同源但 pathname 以多個斜線開頭：http://本站//evil.example.com 解析後是 //evil.example.com，
+    // 若直接當成轉址目標，瀏覽器就會跳到站外
+    const doubleSlashOrder = await api('POST', '/api/payments/deposit', { token, body: { amount: 300 } });
+    const doubleSlashRes = await fetch(`${BASE}/sandbox/pay`, {
+        method: 'POST',
+        redirect: 'manual',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            MerchantTradeNo: doubleSlashOrder.data.formData.MerchantTradeNo,
+            result: 'success',
+            ClientBackURL: `${BASE}//evil.example.com/phish`
+        }).toString()
+    });
+    const doubleSlashLocation = doubleSlashRes.headers.get('location') || '';
+    check('同源的雙斜線網址不會變成跨站轉址',
+        !doubleSlashLocation.startsWith('//') && doubleSlashLocation.startsWith('/evil.example.com/phish'),
+        doubleSlashLocation);
+
+    console.log('\n# 失敗的訂單不能靠重送 success 變成付款成功');
+
+    const replayOrder = await api('POST', '/api/payments/deposit', { token, body: { amount: 300 } });
+    const replayNo = replayOrder.data.formData.MerchantTradeNo;
+    const sendPayForm = result => fetch(`${BASE}/sandbox/pay`, {
+        method: 'POST',
+        redirect: 'manual',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            MerchantTradeNo: replayNo,
+            result,
+            ClientBackURL: '/profile.html?payment=done'
+        }).toString()
+    });
+
+    const failedPay = await sendPayForm('fail');
+    check('模擬付款失敗會導回 result=fail',
+        (failedPay.headers.get('location') || '').includes('result=fail'),
+        failedPay.headers.get('location'));
+
+    const balanceBeforeReplay = (await api('GET', '/api/auth/me', { token })).data.user.balance;
+    const replayPay = await sendPayForm('success');
+    const replayLocation = replayPay.headers.get('location') || '';
+    check('失敗的訂單被重送 success 時，返回頁仍是 result=fail',
+        replayLocation.includes('result=fail') && !replayLocation.includes('result=success'),
+        replayLocation);
+
+    const replayStatus = getDb()
+        .prepare('SELECT status FROM payment_orders WHERE merchant_order_no = ?')
+        .get(replayNo).status;
+    check('重送 success 不會把失敗的訂單改成已付款', replayStatus === 'failed', replayStatus);
+
+    const balanceAfterReplay = (await api('GET', '/api/auth/me', { token })).data.user.balance;
+    check('重送 success 不會入帳', balanceAfterReplay === balanceBeforeReplay,
+        `${balanceBeforeReplay} → ${balanceAfterReplay}`);
+
+    console.log('\n# 返回網址只會變成站內路徑（toLocalPath）');
+
+    const trustedOrigin = 'https://ticket.example.com';
+    const localPathCases = [
+        ['https://ticket.example.com//evil.example.com/phish', '/evil.example.com/phish'],
+        ['https://ticket.example.com///evil.example.com?x=1', '/evil.example.com?x=1'],
+        ['///evil.example.com', '/'],
+        ['https://evil.example.com/phish', '/'],
+        ['javascript:alert(1)', '/'],
+        ['/profile.html?payment=done', '/profile.html?payment=done']
+    ];
+    for (const [input, expected] of localPathCases) {
+        const got = toLocalPath(input, '/', trustedOrigin);
+        check(`toLocalPath(${JSON.stringify(input)}) → ${expected}`, got === expected, `got=${got}`);
+    }
+    check('沒有信任來源時，絕對網址一律退回預設路徑',
+        toLocalPath('https://ticket.example.com/profile.html') === '/');
 
     /* ---------------- 退票 ---------------- */
     console.log('\n# 退票');
@@ -796,6 +956,34 @@ async function main() {
     }
 
 
+    /* ---------------- 查詢參數的型別 ---------------- */
+    console.log('\n# 查詢參數：重複或巢狀的參數不得造成 500');
+
+    const dupCategory = await api('GET', '/api/movies?category=NowShowing&category=ComingSoon');
+    check('重複的 category 參數不會造成 500', dupCategory.status === 200, `status=${dupCategory.status}`);
+    check('重複的 category 參數視同未傳，回傳完整電影清單',
+        dupCategory.data?.movies?.length === movies.data.movies.length,
+        `count=${dupCategory.data?.movies?.length}`);
+
+    const nestedCategory = await api('GET', '/api/movies?category[x]=1');
+    check('巢狀的 category 參數不會造成 500', nestedCategory.status === 200, `status=${nestedCategory.status}`);
+
+    const dupShowtimes = await api('GET', `/api/showtimes?movieId=1&movieId=2&date=${today}&date=${futureDateStr}`);
+    check('重複的 movieId / date 參數不會造成 500', dupShowtimes.status === 200, `status=${dupShowtimes.status}`);
+
+    const oneDay = await api('GET', `/api/showtimes?date=${target.date}`);
+    check('單一 date 參數仍正常篩選',
+        oneDay.status === 200 && oneDay.data.showtimes.every(st => st.date === target.date));
+
+    const badMovieId = await api('GET', '/api/showtimes?movieId=abc');
+    check('非數字的 movieId 不會造成 500', badMovieId.status === 200, `status=${badMovieId.status}`);
+
+    const badMovieDetail = await api('GET', '/api/movies/abc');
+    check('非數字的電影編號回 404', badMovieDetail.status === 404, `status=${badMovieDetail.status}`);
+
+    const dupAdminDate = await api('GET', '/api/admin/showtimes?date=2026-01-01&date=2026-01-02', { token: adminToken });
+    check('後台場次列表的重複 date 參數不會造成 500', dupAdminDate.status === 200, `status=${dupAdminDate.status}`);
+
     /* ---------------- 收尾修正的回歸測試 ---------------- */
     console.log('\n# 靜態檔案不得洩漏種子資料');
 
@@ -945,6 +1133,69 @@ async function main() {
     });
     check('一般會員登入回應的 role 是 user', userLoginRole.data.user.role === 'user');
 
+    console.log('\n# 定時補齊場次');
+
+    // 模擬 12 天後：目前的排片視窗整個推過去，視窗內的每一天都必須補上場次
+    const lateNow = new Date(Date.now() + 12 * 24 * 60 * 60 * 1000);
+    const lateDate = toLocalDateStr(lateNow);
+    const theaterCount = getDb().prepare('SELECT COUNT(*) AS n FROM theaters').get().n;
+    const slotsPerDay = theaterCount * payCfg.SCHEDULE_TIMES.length;
+
+    const lateBefore = getDb().prepare('SELECT COUNT(*) AS n FROM showtimes WHERE date = ?').get(lateDate).n;
+    check('視窗之外的日期一開始沒有場次', lateBefore === 0, `count=${lateBefore}`);
+
+    const createdLate = refreshSchedule(lateNow);
+    check('補齊會為視窗內的每一天排滿場次',
+        createdLate === payCfg.SCHEDULE_DAYS * slotsPerDay,
+        `created=${createdLate} expected=${payCfg.SCHEDULE_DAYS * slotsPerDay}`);
+
+    const lateAfter = getDb().prepare('SELECT COUNT(*) AS n FROM showtimes WHERE date = ?').get(lateDate).n;
+    check('新推進視窗的日期確實有場次', lateAfter === slotsPerDay, `count=${lateAfter}`);
+
+    check('同一個視窗重複補齊不會重複排片', refreshSchedule(lateNow) === 0);
+
+    // 計時器以注入方式測試：間隔、unref、停止、失敗不往外拋、0 表示停用
+    let scheduled = null;
+    let timerUnrefed = false;
+    const fakeTimer = { unref() { timerUnrefed = true; } };
+    const clearedTimers = [];
+    const ticks = [];
+    const refreshHandle = startScheduleRefresh({
+        intervalMs: 123456,
+        refresh: () => { ticks.push('refresh'); return 2; },
+        onCreated: created => ticks.push(`created:${created}`),
+        setIntervalFn: (fn, ms) => { scheduled = { fn, ms }; return fakeTimer; },
+        clearIntervalFn: timer => clearedTimers.push(timer)
+    });
+    check('以設定的間隔啟動計時器', scheduled?.ms === 123456, `ms=${scheduled?.ms}`);
+    check('計時器會被 unref，不會讓行程因它而無法結束', timerUnrefed === true);
+
+    scheduled.fn();
+    check('每次觸發都會補齊，並回報新增數量', ticks.join(',') === 'refresh,created:2', ticks.join(','));
+
+    refreshHandle.stop();
+    check('stop() 會清除同一個計時器', clearedTimers.length === 1 && clearedTimers[0] === fakeTimer);
+
+    const tickFailures = [];
+    let failingTick = null;
+    startScheduleRefresh({
+        intervalMs: 1000,
+        refresh: () => { throw new Error('database is locked'); },
+        onError: error => tickFailures.push(error.message),
+        setIntervalFn: fn => { failingTick = fn; return fakeTimer; },
+        clearIntervalFn: () => {}
+    });
+    let tickThrew = false;
+    try { failingTick(); } catch { tickThrew = true; }
+    check('補齊失敗不會以例外打掛行程', !tickThrew && tickFailures[0] === 'database is locked',
+        tickFailures.join(','));
+
+    check('間隔為 0 時不啟動計時器',
+        startScheduleRefresh({
+            intervalMs: 0,
+            setIntervalFn: () => { throw new Error('should not start'); }
+        }) === null);
+
     console.log('\n# 登入速率限制（暴力破解防護）');
 
     // 上限是每分鐘 15 次；前面已用掉幾次，連續打 20 次必定觸發 429。
@@ -983,6 +1234,22 @@ async function main() {
     check('REFUND_CUTOFF_MINUTES 為負數時拒絕啟動',
         badCutoff.code !== 0 && badCutoff.stderr.includes('REFUND_CUTOFF_MINUTES'),
         `code=${badCutoff.code} stderr=${badCutoff.stderr.trim().split('\n')[0]}`);
+
+    // 定時補齊：0 表示停用（不被預設值蓋掉），無法解析或超出範圍的值必須拒絕啟動
+    const zeroRefresh = await runConfigProbe({ SCHEDULE_REFRESH_MS: '0' });
+    check('SCHEDULE_REFRESH_MS=0 表示停用，不會被預設值蓋掉',
+        zeroRefresh.scheduleRefreshMs === 0, `value=${zeroRefresh.scheduleRefreshMs}`);
+    check('未設定 SCHEDULE_REFRESH_MS 時預設每小時補齊一次', payCfg.SCHEDULE_REFRESH_MS === 3600000);
+
+    for (const bad of ['-1', '1000', 'hourly']) {
+        const badRefresh = await runConfigLoad({ SCHEDULE_REFRESH_MS: bad });
+        check(`SCHEDULE_REFRESH_MS=${bad} 時拒絕啟動`,
+            badRefresh.code !== 0 && badRefresh.stderr.includes('SCHEDULE_REFRESH_MS'),
+            `code=${badRefresh.code} stderr=${badRefresh.stderr.trim().split('\n')[0]}`);
+    }
+
+    const minRefresh = await runConfigLoad({ SCHEDULE_REFRESH_MS: '60000' });
+    check('60000 毫秒是可接受的最小間隔', minRefresh.code === 0, `code=${minRefresh.code}`);
 
     // 正式環境會設 PUBLIC_URL，這條路徑必須跟沙盒的驗證一致，否則付款導回會失效
     const publicUrlEnv = await runConfigProbe({ PUBLIC_URL: 'http://ticket.example.com/' });

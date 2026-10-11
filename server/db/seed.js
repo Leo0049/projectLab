@@ -142,10 +142,12 @@ function buildDaySchedule(dateStr, dayOffset) {
 
 /**
  * 確保未來 SCHEDULE_DAYS 天都有場次可訂。
- * 伺服器每次啟動時執行，所以放著幾週後再打開也不會變成空的。
+ * 伺服器啟動時執行一次，之後由 server/schedule.js 定時執行，
+ * 所以長時間不重新部署，視窗往前推出來的新日期也會陸續補上。
+ * @param {Date} [now] - 以這個時間點往後算視窗，預設為現在（測試用）
  * @returns {number} 這次新增的場次數
  */
-const ensureUpcomingShowtimes = writeTransaction(() => {
+const ensureUpcomingShowtimes = writeTransaction((now = new Date()) => {
     const db = getDb();
     const countForDate = db.prepare('SELECT COUNT(*) AS n FROM showtimes WHERE date = ?');
     const insert = db.prepare(`
@@ -154,7 +156,7 @@ const ensureUpcomingShowtimes = writeTransaction(() => {
     `);
 
     // 以台灣日曆日期做 UTC 日曆運算，避免排片日期受主機時區影響。
-    const [year, month, day] = toLocalDateStr().split('-').map(Number);
+    const [year, month, day] = toLocalDateStr(now).split('-').map(Number);
     let created = 0;
 
     for (let dayOffset = 0; dayOffset < config.SCHEDULE_DAYS; dayOffset++) {

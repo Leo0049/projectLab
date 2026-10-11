@@ -186,9 +186,6 @@ router.post('/pay', async (req, res, next) => {
 
         const callbackParams = paymentService.buildSandboxCallback(orderNo, success);
         const backPath = toLocalPath(req.body?.ClientBackURL, '/', publicOrigin(req));
-        const separator = backPath.includes('?') ? '&' : '?';
-        const backUrl = `${backPath}${separator}order=${encodeURIComponent(orderNo)}` +
-            `&result=${success ? 'success' : 'fail'}`;
 
         // 伺服器對伺服器通知。
         // 回調位址一律由這條連線的實際本地位址組出來，完全不看表單傳來的 ReturnURL——
@@ -208,6 +205,15 @@ router.post('/pay', async (req, res, next) => {
         } catch (error) {
             callbackError = error;
         }
+
+        // 返回頁的結果以訂單的實際狀態為準，不採信表單送來的 result。
+        // 原因：失敗的訂單可以再被重送一筆 result=success 的請求；webhook 會因為訂單已是終態而回 1|OK，
+        // 若這裡照表單的 result 寫，使用者就會被導回「付款成功」的頁面，但錢其實沒有入帳。
+        // （getPendingOrderForSandbox 回傳的是訂單當下的狀態，不限 pending。）
+        const finalOrder = paymentService.getPendingOrderForSandbox(orderNo);
+        const separator = backPath.includes('?') ? '&' : '?';
+        const backUrl = `${backPath}${separator}order=${encodeURIComponent(orderNo)}` +
+            `&result=${finalOrder?.status === 'paid' ? 'success' : 'fail'}`;
 
         if (!callbackConfirmed) {
             console.error('沙盒回調未獲確認:', callbackError || 'webhook 回應狀態或內容不符');

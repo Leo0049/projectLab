@@ -1,8 +1,10 @@
 -- FakeTheater 資料表定義
 --
 -- 設計重點：
---   booking_seats 上的 UNIQUE(showtime_id, seat_row, seat_col) 是防止超賣的最後一道防線，
---   即使應用層邏輯有漏洞、或有多個伺服器行程同時寫入，資料庫也不可能讓同一個位子賣出兩次。
+--   booking_seats 上的部分唯一索引 idx_booking_seats_unique（見下方 WHERE status != 'refunded'）
+--   是防止超賣的最後一道防線：即使應用層邏輯有漏洞、或有多個伺服器行程同時寫入，
+--   資料庫也不可能讓同一個座位同時存在兩筆「未退票」的紀錄。
+--   退票後該列 status 變成 refunded、退出索引，位子才重新開放賣出。
 
 CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
